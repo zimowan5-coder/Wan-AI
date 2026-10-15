@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}市场研究 - Wan's AI · 商业操作系统 v0.1{% endblock %}
+{% block content %}
+<h1>市场研究</h1>
+
+<div class="card">
+  <h2>新建研究</h2>
+  <form method="post" action="/research">
+    <label>研究主题 <input type="text" name="topic" required maxlength="200" placeholder="例如：跨境电商宠物用品市场机会"></label>
+    <label>种子 URL（可选，每行一个；搜索被反爬拦截时可直接提供来源）
+      <textarea name="seed_urls" rows="3" placeholder="https://example.com/article1&#10;https://example.com/article2"></textarea>
+    </label>
+    <button type="submit" class="btn btn-primary">开始研究</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>研究报告</h2>
+  {% if reports %}
+  <table class="table">
+    <thead><tr><th>主题</th><th>创建时间</th><th>来源数</th><th>AI模式</th></tr></thead>
+    <tbody>
+    {% for r in reports %}
+      <tr>
+        <td><a href="/research/{{ r.id }}">{{ r.topic }}</a></td>
+        <td>{{ r.created_at }}</td>
+        <td>{{ r.sources_count }}</td>
+        <td>{{ r.ai_mode }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">暂无研究报告。</p>
+  {% endif %}
+</div>
+{% endblock %}

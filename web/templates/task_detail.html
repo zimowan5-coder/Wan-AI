@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}任务详情 - Wan's AI · 商业操作系统 v0.1{% endblock %}
+{% block content %}
+<h1>任务详情</h1>
+
+<div class="card">
+  <h2>{{ task.title }} <span class="badge status-{{ task.status }}">{{ task.status_label }}</span></h2>
+  <table class="table kv">
+    <tbody>
+      <tr><th>类型</th><td>{{ task.type }}</td></tr>
+      <tr><th>优先级</th><td>{{ task.priority }}</td></tr>
+      <tr><th>尝试次数</th><td>{{ task.attempts }}/{{ task.max_attempts }}</td></tr>
+      <tr><th>创建时间</th><td>{{ task.created_at }}</td></tr>
+      <tr><th>开始时间</th><td>{{ task.started_at or '—' }}</td></tr>
+      <tr><th>结束时间</th><td>{{ task.finished_at or '—' }}</td></tr>
+      <tr><th>结果摘要</th><td>{{ task.result_summary or '—' }}</td></tr>
+      {% if task.error %}<tr><th>错误</th><td class="error-text">{{ task.error }}</td></tr>{% endif %}
+    </tbody>
+  </table>
+  <h3>参数</h3>
+  <pre class="code">{{ task.payload_json }}</pre>
+</div>
+
+{% if approval %}
+<div class="card">
+  <h2>关联审批 <span class="badge status-{{ approval.status }}">{{ approval.kind_label }}</span></h2>
+  <table class="table kv">
+    <tbody>
+      <tr><th>标题</th><td>{{ approval.title }}</td></tr>
+      <tr><th>金额</th><td>{% if approval.amount_cny is not none %}{{ approval.amount_cny }} 元{% else %}—{% endif %}</td></tr>
+      <tr><th>状态</th><td>{{ approval.status }}</td></tr>
+    </tbody>
+  </table>
+  <a class="btn btn-small" href="/approvals">去审批页处理</a>
+</div>
+{% endif %}
+
+{% if task.status == 'awaiting_input' %}
+<div class="card">
+  <h2>需要输入</h2>
+  <form method="post" action="/tasks/{{ task.id }}/input">
+    <label>请输入任务所需的内容 <textarea name="input_text" rows="6" required></textarea></label>
+    <button type="submit" class="btn btn-primary">提交输入</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="btn-row">
+  {% if task.status == 'failed' %}
+  <form method="post" action="/tasks/{{ task.id }}/retry" data-confirm="确定要重试这个任务吗？">
+    <button type="submit" class="btn btn-warning">重试</button>
+  </form>
+  {% endif %}
+  {% if task.status in ['pending', 'awaiting_approval', 'running', 'awaiting_input'] %}
+  <form method="post" action="/tasks/{{ task.id }}/cancel" data-confirm="确定要取消这个任务吗？">
+    <button type="submit" class="btn btn-danger">取消任务</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>执行日志</h2>
+  {% if logs %}
+  <table class="table">
+    <thead><tr><th>时间</th><th>级别</th><th>消息</th></tr></thead>
+    <tbody>
+    {% for l in logs %}
+      <tr><td>{{ l.ts }}</td><td><span class="log-level log-{{ l.level }}">{{ l.level }}</span></td><td>{{ l.message }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">暂无日志。</p>
+  {% endif %}
+</div>
+{% endblock %}
