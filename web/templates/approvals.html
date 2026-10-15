@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}审批 - Wan's AI · 商业操作系统 v0.1{% endblock %}
+{% block content %}
+<h1>审批中心</h1>
+
+{% for a in approvals %}
+<div class="card approval-card">
+  <h2>{{ a.title }} <span class="badge status-{{ a.status }}">{{ a.status_label }}</span></h2>
+  <table class="table kv">
+    <tbody>
+      <tr><th>类型</th><td>{{ a.kind_label }}</td></tr>
+      <tr><th>金额</th><td>{% if a.amount_cny is not none %}{{ a.amount_cny }} 元{% else %}—{% endif %}</td></tr>
+      <tr><th>提交时间</th><td>{{ a.ts }}</td></tr>
+      {% if a.decided_at %}<tr><th>决策时间</th><td>{{ a.decided_at }}</td></tr>{% endif %}
+      {% if a.note %}<tr><th>备注</th><td>{{ a.note }}</td></tr>{% endif %}
+    </tbody>
+  </table>
+  {% if a.detail_json %}
+  <h3>详情</h3>
+  <pre class="code">{{ a.detail_json }}</pre>
+  {% endif %}
+  {% if a.status in ['pending', 'awaiting_approval'] %}
+  <div class="btn-row">
+    <form method="post" action="/approvals/{{ a.id }}/approve" data-confirm="确定要批准「{{ a.title }}」吗？">
+      <label>备注 <input type="text" name="note" maxlength="200"></label>
+      <button type="submit" class="btn btn-primary">批准</button>
+    </form>
+    <form method="post" action="/approvals/{{ a.id }}/reject" data-confirm="确定要拒绝「{{ a.title }}」吗？">
+      <label>备注 <input type="text" name="note" maxlength="200"></label>
+      <button type="submit" class="btn btn-danger">拒绝</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% else %}
+<div class="card"><p class="muted">暂无审批事项。</p></div>
+{% endfor %}
+{% endblock %}

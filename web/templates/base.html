@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}控制台 - Wan's AI · 商业操作系统 v0.1{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="/">Wan's AI · 商业操作系统 <span class="ver">v0.1</span></a>
+    <nav class="nav">
+      <a href="/">控制台</a>
+      <a href="/tasks">任务</a>
+      <a href="/research">市场研究</a>
+      <a href="/finance">财务</a>
+      <a href="/approvals">审批</a>
+      <a href="/modules">业务模块</a>
+    </nav>
+    <a class="approval-link" href="/approvals">待审批 <span class="badge status-awaiting_approval">{{ pending_approvals_count | default(0) }}</span></a>
+  </div>
+</header>
+<main class="container">
+{% block content %}{% endblock %}
+</main>
+<footer class="footer">Wan's AI Business OS v0.1 · 本地运行</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>

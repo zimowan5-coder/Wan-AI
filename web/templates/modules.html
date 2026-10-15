@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}业务模块 - Wan's AI · 商业操作系统 v0.1{% endblock %}
+{% block content %}
+<h1>业务模块</h1>
+
+{% for m in modules %}
+<div class="card module-card">
+  <h2>{{ m.name }} <span class="badge status-{{ m.status }}">{{ m.status_label }}</span></h2>
+  <p class="muted">{{ m.description }}</p>
+  {% for act in m.actions %}
+  <div class="action-block">
+    <h3>{{ act.label }}</h3>
+    <form method="post" action="/modules/{{ m.key }}/run" data-confirm="确定要运行「{{ act.label }}」吗？">
+      <input type="hidden" name="action" value="{{ act.action }}">
+      <label>参数（JSON） <textarea name="params" rows="3" placeholder="{{ act.params_hint or '' }}"></textarea></label>
+      <button type="submit" class="btn btn-primary">运行</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted">该模块暂无可用操作。</p>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><p class="muted">暂无业务模块。</p></div>
+{% endfor %}
+{% endblock %}

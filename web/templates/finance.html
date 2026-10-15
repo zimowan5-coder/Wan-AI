@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}财务 - Wan's AI · 商业操作系统 v0.1{% endblock %}
+{% block content %}
+<h1>财务台账</h1>
+
+<div class="grid cards-2">
+  <div class="card">
+    <h2>真实账目</h2>
+    <table class="table">
+      <tbody>
+        <tr><td>真实收入</td><td class="num income">{{ totals.revenue_real }} 元</td></tr>
+        <tr><td>真实成本（API）</td><td class="num cost">{{ totals.cost_real }} 元</td></tr>
+        <tr><td>真实支出</td><td class="num cost">{{ totals.expense_real }} 元</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>模拟账目 <span class="badge sim-badge">模拟</span></h2>
+    <table class="table">
+      <tbody>
+        <tr><td>模拟收入</td><td class="num">{{ totals.revenue_sim }} 元</td></tr>
+        <tr><td>模拟成本</td><td class="num">{{ totals.cost_sim }} 元</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">模拟数据仅用于演示流程，不计入真实盈亏。</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>记一笔支出</h2>
+  <form method="post" action="/finance/expense">
+    <div class="form-row">
+      <label>金额（元） <input type="number" name="amount_cny" step="0.01" min="0" required></label>
+      <label>分类 <input type="text" name="category" maxlength="50" placeholder="例如：服务器 / 域名 / 采购"></label>
+    </div>
+    <label>说明 <input type="text" name="description" maxlength="200"></label>
+    <button type="submit" class="btn btn-primary">记录支出</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>账本明细</h2>
+  <h3>真实记录</h3>
+  <table class="table">
+    <thead><tr><th>时间</th><th>类型</th><th>金额</th><th>分类</th><th>说明</th></tr></thead>
+    <tbody>
+    {% for e in ledger if not e.is_simulated %}
+      <tr>
+        <td>{{ e.ts }}</td>
+        <td>{{ e.kind_label }}</td>
+        <td class="num">{{ e.amount_cny }} 元</td>
+        <td>{{ e.category }}</td>
+        <td>{{ e.description }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">暂无真实记录。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>模拟记录 <span class="badge sim-badge">模拟</span></h3>
+  <table class="table">
+    <thead><tr><th>时间</th><th>类型</th><th>金额</th><th>分类</th><th>说明</th></tr></thead>
+    <tbody>
+    {% for e in ledger if e.is_simulated %}
+      <tr class="sim-row">
+        <td>{{ e.ts }}</td>
+        <td>{{ e.kind_label }} <span class="badge sim-badge">模拟</span></td>
+        <td class="num">{{ e.amount_cny }} 元</td>
+        <td>{{ e.category }}</td>
+        <td>{{ e.description }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">暂无模拟记录。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>订单</h2>
+  <h3>真实订单</h3>
+  <table class="table">
+    <thead><tr><th>ID</th><th>业务模块</th><th>客户</th><th>商品</th><th>金额</th><th>状态</th><th>创建时间</th></tr></thead>
+    <tbody>
+    {% for o in orders if not o.is_simulated %}
+      <tr>
+        <td>{{ o.id }}</td>
+        <td>{{ o.module_key }}</td>
+        <td>{{ o.customer }}</td>
+        <td>{{ o.item }}</td>
+        <td class="num">{{ o.amount_cny }} 元</td>
+        <td>{{ o.status }}</td>
+        <td>{{ o.created_at }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted">暂无真实订单。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>模拟订单 <span class="badge sim-badge">模拟</span></h3>
+  <table class="table">
+    <thead><tr><th>ID</th><th>业务模块</th><th>客户</th><th>商品</th><th>金额</th><th>状态</th><th>创建时间</th></tr></thead>
+    <tbody>
+    {% for o in orders if o.is_simulated %}
+      <tr class="sim-row">
+        <td>{{ o.id }} <span class="badge sim-badge">模拟</span></td>
+        <td>{{ o.module_key }}</td>
+        <td>{{ o.customer }}</td>
+        <td>{{ o.item }}</td>
+        <td class="num">{{ o.amount_cny }} 元</td>
+        <td>{{ o.status }}</td>
+        <td>{{ o.created_at }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted">暂无模拟订单。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

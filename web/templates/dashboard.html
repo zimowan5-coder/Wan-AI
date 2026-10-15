@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}控制台 - Wan's AI · 商业操作系统 v0.1{% endblock %}
+{% block content %}
+<h1>经营控制台</h1>
+
+<div class="grid cards-4">
+  <div class="card stat"><div class="stat-num">{{ stats.tasks_pending }}</div><div class="stat-label">任务待执行</div></div>
+  <div class="card stat"><div class="stat-num">{{ stats.tasks_running }}</div><div class="stat-label">任务执行中</div></div>
+  <div class="card stat"><div class="stat-num">{{ stats.tasks_succeeded }}</div><div class="stat-label">任务成功</div></div>
+  <div class="card stat"><div class="stat-num">{{ stats.tasks_failed }}</div><div class="stat-label">任务失败</div></div>
+</div>
+
+<div class="grid cards-2">
+  <div class="card">
+    <h2>预算使用</h2>
+    <div class="budget-line">已用 {{ stats.budget_used_cny }} 元 / 总额 {{ stats.budget_total_cny }} 元</div>
+    {% set pct = (stats.budget_used_cny / stats.budget_total_cny * 100) if stats.budget_total_cny else 0 %}
+    <div class="progress"><div class="progress-fill" style="width: {{ pct|round(1) }}%"></div></div>
+    <div class="budget-pct">{{ pct|round(1) }}%</div>
+  </div>
+  <div class="card">
+    <h2>收支概览</h2>
+    <table class="table">
+      <tbody>
+        <tr><td>真实收入</td><td class="num income">{{ stats.revenue_real_cny }} 元</td></tr>
+        <tr><td>真实成本</td><td class="num cost">{{ stats.cost_real_cny }} 元</td></tr>
+        <tr><td>模拟收入 <span class="badge sim-badge">模拟</span></td><td class="num">{{ stats.revenue_sim_cny }} 元</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>待审批事项</h2>
+  {% if pending_approvals %}
+  <table class="table">
+    <thead><tr><th>标题</th><th>类型</th><th>金额</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for a in pending_approvals %}
+      <tr>
+        <td>{{ a.title }}</td>
+        <td>{{ a.kind_label }}</td>
+        <td class="num">{% if a.amount_cny is not none %}{{ a.amount_cny }} 元{% else %}—{% endif %}</td>
+        <td><a class="btn btn-small" href="/approvals">去审批</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">暂无待审批事项。</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>最近任务</h2>
+  {% if recent_tasks %}
+  <table class="table">
+    <thead><tr><th>标题</th><th>类型</th><th>状态</th><th>创建时间</th></tr></thead>
+    <tbody>
+    {% for t in recent_tasks %}
+      <tr>
+        <td><a href="/tasks/{{ t.id }}">{{ t.title }}</a></td>
+        <td>{{ t.type }}</td>
+        <td><span class="badge status-{{ t.status }}">{{ t.status_label }}</span></td>
+        <td>{{ t.created_at }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">还没有任务。</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>业务模块</h2>
+  {% if modules %}
+  <div class="grid cards-3">
+  {% for m in modules %}
+    <div class="module-mini">
+      <div class="module-mini-name">{{ m.name }}</div>
+      <div class="module-mini-desc">{{ m.description }}</div>
+      <div><span class="badge status-{{ m.status }}">{{ m.status_label }}</span></div>
+    </div>
+  {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">暂无业务模块。</p>
+  {% endif %}
+</div>
+
+<div class="card demo-card">
+  <h2>端到端演示</h2>
+  <p class="muted">依次执行：市场研究 → 机会报告 → 创建实验任务 → 执行样品 → 记录成本，全流程跑通一次。</p>
+  <form method="post" action="/demo/run" data-confirm="确定要运行端到端演示吗？这会创建并执行一系列演示任务。">
+    <button type="submit" class="btn btn-primary">▶ 运行端到端演示</button>
+  </form>
+</div>
+{% endblock %}

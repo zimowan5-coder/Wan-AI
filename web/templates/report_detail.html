@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}研究报告 - Wan's AI · 商业操作系统 v0.1{% endblock %}
+{% block content %}
+<h1>{{ report.topic }}</h1>
+<p class="muted">创建于 {{ report.created_at }} · {{ report.ai_mode_label }}</p>
+
+<div class="card">
+  <h2>研究统计</h2>
+  <table class="table kv">
+    <tbody>
+    {% for k, v in stats.items() %}
+      <tr><th>{{ k }}</th><td>{{ v }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>研究结论</h2>
+  <div class="report-body">{{ report_html|safe }}</div>
+</div>
+
+<div class="card">
+  <h2>信息来源</h2>
+  {% if report.sources %}
+  <ol class="sources">
+  {% for s in report.sources %}
+    <li>
+      <a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a><br>
+      <span class="url">{{ s.url }}</span>
+    </li>
+  {% endfor %}
+  </ol>
+  {% else %}
+  <p class="muted">暂无来源记录。</p>
+  {% endif %}
+</div>
+{% endblock %}
