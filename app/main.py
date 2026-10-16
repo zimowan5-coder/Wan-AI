@@ -55,6 +55,7 @@ def create_app(db_path=None):
 
     app = FastAPI(title="Wan's AI Business OS v0.1")
     app.state.db = db
+    tasks_mod.quarantine_interrupted(db)
     app.middleware("http")(owner_guard)
     templates = Jinja2Templates(directory=str(BASE_DIR / "web" / "templates"))
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web" / "static")),

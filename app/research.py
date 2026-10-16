@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import re
 import time
+import ipaddress
+import socket
 from datetime import datetime, timezone, timedelta
 from html import unescape
 from html.parser import HTMLParser
@@ -72,20 +74,25 @@ def _http_get(url: str, headers: dict, timeout: int):
     """
     import os
     from urllib.parse import urlparse
-    host = (urlparse(url).hostname or "").lower()
-    local = host in ("localhost", "127.0.0.1", "::1") or host.startswith("192.168.")
-    proxy_url = (
-        os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
-        or os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
-        or ""
-    ).strip()
-    kwargs = {
-        "timeout": timeout,
-        "headers": headers,
-        "follow_redirects": True,
-        "trust_env": False,
-    }
-    if proxy_url and not local:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if parsed.scheme not in ("http", "https") or not host or parsed.username or parsed.password:
+        raise ValueError("禁止非 HTTP(S) 或带认证信息的研究 URL")
+    if host in ("localhost", "metadata.google.internal") or host.endswith((".local", ".internal", ".localhost")):
+        raise ValueError("禁止访问内网/本地主机")
+    # Restrict both IP literals and DNS results (defense in depth).
+    addresses = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    if not addresses:
+        raise ValueError("域名无法解析")
+    for address in addresses:
+        ip = ipaddress.ip_address(address[4][0])
+        if not ip.is_global:
+            raise ValueError("禁止抓取非公网地址")
+    proxy_url = (os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
+                 or os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY") or "").strip()
+    kwargs = {"timeout": timeout, "headers": headers,
+              "follow_redirects": False, "trust_env": False}
+    if proxy_url:
         kwargs["proxy"] = proxy_url
     with httpx.Client(**kwargs) as client:
         return client.get(url)

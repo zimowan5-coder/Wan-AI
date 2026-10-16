@@ -9,6 +9,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from html import escape
 
 from . import tasks as tasks_mod
 from . import finance as finance_mod
@@ -58,8 +59,8 @@ def handle_sample_fulfillment(db, task, log):
         content = f"""<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
 <title>样品 - 任务 #{task_id}</title>
 <style>body{{font-family:sans-serif;max-width:720px;margin:40px auto;padding:0 16px}}</style>
-</head><body><h1>样品交付物</h1><p><b>任务</b> #{task_id} · {task['title']}</p>
-<h2>需求简述</h2><p>{brief}</p>
+</head><body><h1>样品交付物</h1><p><b>任务</b> #{task_id} · {escape(task['title'])}</p>
+<h2>需求简述</h2><p>{escape(brief)}</p>
 <h2>说明</h2><p>此为 Wan's AI v0.1 样品制作任务生成的占位交付物（本地模板生成，零成本）。
 真实业务中此处应为按客户需求定制的内容。</p></body></html>"""
         mime = "text/html"
@@ -101,6 +102,9 @@ def handle_inquiry_process(db, task, log):
     log("info", f"分类结果：意图={analysis['intent']} 语言={analysis['lang']} "
                 f"产品关键词={analysis['product_keywords'][:5]}")
     reply = draft_reply(analysis)
+    if payload.get("lead_id"):
+        reply = (reply.replace(" within 24 hours", " as soon as possible")
+                      .replace("将在 24 小时内", "会尽快"))
     art_dir = Path(db.path).parent / "artifacts"
     art_dir.mkdir(parents=True, exist_ok=True)
     fname = f"inquiry-{task['id']}-reply.md"
@@ -114,10 +118,7 @@ def handle_inquiry_process(db, task, log):
         score = 35 + (20 if analysis["intent"] in ("询价", "下单") else 0)
         score += 15 if analysis["quantities"] else 0
         score += 10 if analysis["urgency"] == "high" else 0
-        # Templates cannot quote binding prices or promise delivery dates.
-        rev_draft = reply.replace(" within 24 hours", " as soon as possible").replace(
-            "将在 24 小时内", "会尽快")
-        revenue.set_draft(db, int(payload["lead_id"]), rev_draft, analysis["intent"], min(100, score))
+        revenue.set_draft(db, int(payload["lead_id"]), reply, analysis["intent"], min(100, score))
     # 对外发送必须审批：建审批单，任务等待
     from . import approvals as ap
     aid = ap.create(db, "publish", f"审批：发送询盘回复（任务 #{task['id']}）",
@@ -199,8 +200,12 @@ def run_task_once(db, task_id):
     if not task:
         raise ValueError(f"task {task_id} not found")
     from .db import now_iso
-    db.execute("UPDATE tasks SET status='running', started_at=?, attempts=attempts+1,"
-               " updated_at=? WHERE id=?", (now_iso(), now_iso(), task_id))
+    if task["status"] == "pending":
+        db.execute("UPDATE tasks SET status='running', started_at=?, attempts=attempts+1,"
+                   " updated_at=? WHERE id=? AND status='pending'",
+                   (now_iso(), now_iso(), task_id))
+    elif task["status"] != "running":
+        raise ValueError("task not executable")
     task = tasks_mod.get_task(db, task_id)
 
     def log(level, msg):

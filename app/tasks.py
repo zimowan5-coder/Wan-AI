@@ -206,3 +206,9 @@ def save_artifact(db, task_id, name, path, mime=""):
 def list_artifacts(db, task_id):
     rows = db.query("SELECT * FROM artifacts WHERE task_id=? ORDER BY id ASC", (task_id,))
     return [dict(r) for r in rows]
+
+def quarantine_interrupted(db):
+    """After unclean shutdown do not replay side effects (email, payment, external API)."""
+    db.execute("UPDATE tasks SET status='failed',updated_at=?,finished_at=?,"
+               "error='上次运行异常中断；人工检查外部副作用后才允许重试'"
+               " WHERE status='running'", (now_iso(), now_iso()))

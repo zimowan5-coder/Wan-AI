@@ -45,11 +45,21 @@ async def owner_guard(request, call_next):
         if host not in ("127.0.0.1", "::1", "localhost"):
             return PlainTextResponse("未配置管理密码，禁止远程访问", status_code=403)
     if request.method not in ("GET", "HEAD", "OPTIONS"):
-        origin = request.headers.get("origin")
+        origin = request.headers.get("origin") or request.headers.get("referer", "")
+        site = request.headers.get("sec-fetch-site", "")
+        if site in ("cross-site", "same-site"):
+            return PlainTextResponse("跨站写入已拒绝", status_code=403)
         if origin:
             parsed = urlsplit(origin)
-            if parsed.netloc.lower() != request.headers.get("host", "").lower():
-                return PlainTextResponse("跨站写入已拒绝", status_code=403)
-        if request.headers.get("sec-fetch-site") == "cross-site":
-            return PlainTextResponse("跨站写入已拒绝", status_code=403)
-    return await call_next(request)
+            host = request.headers.get("host", "").lower()
+            # Scheme behind trusted proxy is deployment-specific; host-match + TLS must be enforced by reverse proxy.
+            if parsed.scheme not in ("https", "http") or parsed.netloc.lower() != host:
+                return PlainTextResponse("请求来源不受信任", status_code=403)
+        elif site != "same-origin":
+            return PlainTextResponse("无来源证明，拒绝写操作", status_code=403)
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Cache-Control"] = "no-store"
+    return response

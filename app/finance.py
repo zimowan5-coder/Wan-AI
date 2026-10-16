@@ -51,6 +51,7 @@ def totals(db):
         "expense_real": _sum(db, "expense", False),
         "api_cost_real": _sum(db, "api_cost", False),
         "refund_real": _sum(db, "refund", False),
+        "net_real": _sum(db, "revenue", False) - _sum(db, "refund", False) - _sum(db, "api_cost", False) - _sum(db, "expense", False),
     }
 
 
@@ -61,6 +62,10 @@ def list_entries(db, limit=200):
 
 def create_order(db, module_key, customer, item, amount_cny, is_simulated=False,
                  status="paid", notes=""):
+    if status != "paid" and not is_simulated:
+        raise ValueError("真实订单只有确认已付款后才能入账")
+    if not math.isfinite(float(amount_cny)) or float(amount_cny) <= 0:
+        raise ValueError("金额必须为大于零的有限数字")
     cur = db.execute(
         "INSERT INTO orders(module_key,customer,item,amount_cny,status,is_simulated,created_at,notes)"
         " VALUES(?,?,?,?,?,?,?,?)",

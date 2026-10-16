@@ -31,6 +31,12 @@
 </div>
 
 <div class="card">
+  <h2>真实经营情况（不含模拟）</h2>
+  <p>真实询盘：{{ lead_metrics.leads }} · 已跟进：{{ lead_metrics.sent }} · 标记成交：{{ lead_metrics.won }} · 待审：{{ lead_metrics.awaiting_review }}</p>
+  <p>转化率：{{ (lead_metrics.conversion_pct|string + "%") if lead_metrics.conversion_pct is not none else "样本不足" }} · 实际净收入需以支付渠道已验证到账、退款及成本为准。</p>
+  <p><a class="btn btn-primary" href="/leads">查看询盘与待发回复</a> <a class="btn" href="/setup">运行准备清单</a></p>
+</div>
+<div class="card">
   <h2>待审批事项</h2>
   {% if pending_approvals %}
   <table class="table">
