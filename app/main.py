@@ -105,6 +105,39 @@ def create_app(db_path=None):
             raise HTTPException(status_code=422, detail=str(exc))
         return RedirectResponse("/setup", status_code=303)
 
+    @app.post("/setup/email")
+    def setup_email(imap_host: str = Form(""), imap_port: str = Form(""),
+                    imap_user: str = Form(""), imap_password: str = Form(""),
+                    smtp_host: str = Form(""), smtp_port: str = Form(""),
+                    smtp_user: str = Form(""), smtp_password: str = Form(""),
+                    from_email: str = Form("")):
+        from .settings_ui import save_options
+        try:
+            save_options({
+                "WANAI_IMAP_HOST": imap_host, "WANAI_IMAP_PORT": imap_port,
+                "WANAI_IMAP_USER": imap_user, "WANAI_IMAP_PASSWORD": imap_password,
+                "WANAI_SMTP_HOST": smtp_host, "WANAI_SMTP_PORT": smtp_port,
+                "WANAI_SMTP_USER": smtp_user, "WANAI_SMTP_PASSWORD": smtp_password,
+                "WANAI_FROM_EMAIL": from_email,
+            }, BASE_DIR / ".env")
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc))
+        return RedirectResponse("/setup?saved=1", status_code=303)
+
+    @app.post("/setup/payments")
+    def setup_payments(checkout_url: str = Form(""), stripe_webhook_secret: str = Form(""),
+                       intake_secret: str = Form("")):
+        from .settings_ui import save_options
+        try:
+            save_options({
+                "WANAI_CHECKOUT_URL": checkout_url,
+                "STRIPE_WEBHOOK_SECRET": stripe_webhook_secret,
+                "WANAI_INTAKE_SECRET": intake_secret,
+            }, BASE_DIR / ".env")
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc))
+        return RedirectResponse("/setup?saved=1", status_code=303)
+
     @app.get("/leads", response_class=HTMLResponse)
     def leads_page(request: Request):
         return templates.TemplateResponse(request, "leads.html", {
