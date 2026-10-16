@@ -32,7 +32,7 @@ def handle_event(db, event):
     email = str(details.get("email") or "")[:250]
     item = str((data.get("metadata") or {}).get("offer") or "InquiryPilot 询盘处理服务")[:250]
     with _lock, db._conn:
-        existing = db._conn.execute("SELECT id FROM payment_events WHERE session_id=? OR event_id=?",
+        existing = db._conn.execute("SELECT event_id FROM payment_events WHERE session_id=? OR event_id=?",
                                      (session_id, event_id)).fetchone()
         if existing:
             return {"accepted": True, "processed": False, "reason": "duplicate"}
