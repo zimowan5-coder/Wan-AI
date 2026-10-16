@@ -6,6 +6,7 @@
 """
 import threading
 import time
+import os
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -153,18 +154,41 @@ def handle_llm_probe(db, task, log):
     prompt = payload.get("prompt") or payload.get("input_text") or ""
     if not prompt:
         raise ValueError("payload.prompt 为空")
-    provider = get_provider(provider_name)
-    log("info", f"调用模型：{provider.label}")
-    try:
-        result = provider.complete(prompt)
-    except NotConfigured as e:
-        # 转人工：把提示词展示给用户去订阅里跑，粘贴回来继续
-        tasks_mod.request_input(
-            db, task["id"],
-            f"[需人工] {provider.label}不可用：{e}\n\n请将以下提示词粘贴到你的 ChatGPT/Claude 订阅中，"
-            f"把回答粘贴回本任务继续：\n\n{prompt[:2000]}")
-        log("warning", "Provider 未配置，转人工粘贴流程（awaiting_input）")
-        return "等待人工输入"
+    manual_answer = payload.get("input_text") if payload.get("prompt") else None
+    if manual_answer:
+        # Subscription-assisted/manual handoff: do NOT repeat the provider call.
+        result = {"text": str(manual_answer), "cost_cny": 0, "provider": "manual",
+                  "input_tokens": 0, "output_tokens": 0}
+        provider = get_provider("local")
+        log("info", "采纳用户人工粘贴的模型输出，未调用付费 API")
+    else:
+        provider = get_provider(provider_name)
+        if provider.name != "local":
+            # Extra explicit safeguard: even with a leaked/copied API key, no paid calls by default.
+            if os.environ.get("WANAI_ENABLE_PAID_AI", "") != "I_ACCEPT_PAID_API_COSTS":
+                tasks_mod.request_input(db, task["id"],
+                    "付费 API 默认关闭。请将原提示词贴到你的 AI 订阅应用中，"
+                    "然后把完整答案粘贴回此任务，或者由管理员明确开启付费 API。\n\n"
+                    + prompt[:2000])
+                return "待人工粘贴 AI 输出（没有外部 API 调用）"
+            budget = float(tasks_mod.get_setting(db, "monthly_budget_cny", "5000"))
+            spent = db.query_one("SELECT COALESCE(SUM(amount_cny),0) AS total FROM ledger "
+                "WHERE kind IN ('api_cost','expense') AND is_simulated=0 "
+                "AND substr(ts,1,7)=strftime('%Y-%m','now')")["total"]
+            if float(spent) >= budget:
+                tasks_mod.request_input(db, task["id"], "已达到本月记账预算，付费 API 停止。"
+                    "请使用人工粘贴流程，不要提高预算绕过成本核算。\n\n" + prompt[:2000])
+                return "预算保护：等待人工输入"
+        log("info", f"调用模型：{provider.label}")
+        try:
+            result = provider.complete(prompt)
+        except NotConfigured as e:
+            tasks_mod.request_input(
+                db, task["id"],
+                f"[需人工] {provider.label}不可用：{e}\n\n请将以下提示词粘贴到你的 ChatGPT/Claude 订阅中，"
+                f"把回答粘贴回本任务继续：\n\n{prompt[:2000]}")
+            log("warning", "Provider 未配置，转人工粘贴流程（awaiting_input）")
+            return "等待人工输入"
     cost = float(result.get("cost_cny", 0) or 0)
     if cost > 0:
         finance_mod.record(db, "api_cost", cost, category=f"llm/{provider.name}",
@@ -284,6 +308,17 @@ def inbox_loop(db, stop_event):
         stop_event.wait(300)
 
 
+def backup_loop(db, stop_event):
+    from .backup import snapshot
+    while not stop_event.is_set():
+        try:
+            path = snapshot(db)
+            _log_system(db, f"本地备份创建成功：{path.name}")
+        except Exception as e:
+            _log_system(db, f"本地备份失败：{type(e).__name__}")
+        stop_event.wait(24 * 3600)
+
+
 def start_worker(db):
     stop = threading.Event()
     t = threading.Thread(target=worker_loop, args=(db, stop), daemon=True,
@@ -291,4 +326,6 @@ def start_worker(db):
     t.start()
     threading.Thread(target=inbox_loop, args=(db, stop), daemon=True,
                      name="wanai-inbox").start()
+    threading.Thread(target=backup_loop, args=(db, stop), daemon=True,
+                     name="wanai-backup").start()
     return stop, t

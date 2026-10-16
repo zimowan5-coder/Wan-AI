@@ -1,49 +1,46 @@
-# Wan's AI · 自主经营型 AI 商业操作系统（Business OS）v0.1
+# Wan's AI · Revenue OS v0.2（本地试点版）
 
-> 目标：长期运行、逐步自主经营、以真实利润为导向的 AI 商业操作系统。
-> v0.1 交付一条**真实可运行**的最小闭环：市场研究 → 样品制作 → 模拟订单 → 经营台账 → 控制台，全部环节可验收、可审计。
+**真实询盘 → 自动分类 → 待审回复 → 单封发送 → 商户验签收款 → 分账/复盘。**
 
-## 一分钟启动（Windows）
+> 核心原则：没有真实客户就没有真实收入。默认不会群发营销邮件、不会自动支出或假装已收款。
+> 当前为可运行的试点系统，不是公开多租户 SaaS，也未完成真实商业验证。
 
-1. 安装 [Python 3.11+](https://www.python.org/downloads/)（勾选 Add to PATH）
-2. 双击 `scripts\start_windows.bat`
-3. 浏览器自动打开 http://127.0.0.1:8931
+## 不会写代码也能启动
 
-Linux/macOS：`bash scripts/start.sh`
+1. 安装 Python 3.11 或 3.12（Windows 安装时勾选 Add to PATH）。
+2. Windows 双击 `scripts\\start_windows.bat`；macOS/Linux 运行 `bash scripts/start.sh`。
+3. 脚本首次启动自动生成强管理员密码，**只显示一次，请记下**。浏览器打开 http://127.0.0.1:8931。
+4. 管理员用户名固定为 `admin`，密码为刚才生成的密码。
+5. 点击导航栏“首次配置”，按提示接入你拥有或有授权的业务邮箱、可选 Stripe 付款链接。
 
-## 控制台里有什么
+## 现在真正具备的能力
 
-| 页面 | 能力 |
+| 能力 | 真实状态 |
 |---|---|
-| 控制台 | 任务状态、待审批数、预算进度（5000 元首轮上限）、真实/模拟收支 |
-| 任务 | 新建/查看/重试/取消任务；任务日志；`awaiting_input` 可粘贴 AI 输出继续 |
-| 市场研究 | 输入主题（可附种子 URL）→ 真抓取页面 → 确定性评分 → 中文研究报告 |
-| 财务 | 台账（API 成本/支出/收入/退款），**真实与模拟永远分开**；手工记账 |
-| 审批 | 对外发布/支出/账号操作等人审单：批准/拒绝，全程留痕 |
-| 业务模块 | 可插拔生意模块；v0.1 首个模块：InquiryPilot（外贸询盘处理，实验中） |
+| 本地后台 / 任务 / 财务与审批 | 已实现；Python / FastAPI / SQLite |
+| 市场研究 | 可抓取公开页面，但信息和商机评分未得到真人市场验证 |
+| 真实询盘 | 手动导入 + IMAP 专用业务邮箱轮询 + 签名 webhook |
+| 邮件回复 | 自动分类/模板草稿；人工审核并点击发送才单封 SMTP 发出 |
+| 公开介绍页 | `/offer`（仅配置 Stripe 付款链接后出现付款按钮） |
+| Stripe 收款 | 签名 `checkout.session.completed`，CNY 真/模拟分账；不支持自动退款/订阅 |
+| 首次使用 | 自动生成后台密码、首次配置提示页、建议“今天只做一件事” |
+| 安全与恢复 | 私有控制台鉴权、输入约束、防 SSRF 初步处理、异常任务隔离、本地每日备份 |
+| AI 引擎 | 默认本地规则；付费 API **默认关闭**，手动粘贴回答可继续工作 |
+| 自动获客、自动成交、自动续费、净利润保证 | **没有实现，不能声称有效** |
 
-**端到端演示**：控制台首页点「运行端到端演示」，或 `python scripts/demo_e2e.py`。
+## 文档与验收
 
-## 诚实标记（v0.1 的铁律）
+- **`docs/OPERATOR_PLAYBOOK.md`**：给非技术经营者的使用、邮箱、收款、故障、备份说明
+- **`docs/GROWTH_EXPERIMENTS.md`**：14 天首次付费验证、试点定价、获客渠道与停损规则
+- **`docs/ENGINEERING_DECISIONS.md`**：参考优秀开源项目、结构与未实现部分
+- 旧版设计见 `docs/ARCHITECTURE.md`（v0.1 历史）、`docs/ROADMAP.md`（v0.1 历史），以本 README 和最新文档为准。
 
-- 没有 API Key 就**不许假装能调大模型**：默认走本地规则引擎（零费用），缺 Key 的任务转人工粘贴流程（用你的 ChatGPT/Claude 订阅当 bridge）。
-- 模拟订单/模拟数据永远打「模拟」标，**不计入真实收入**。
-- 未实现的功能（自动发送邮件、在线支付、真实询盘来源接入）在文档与界面中明确标注，不画饼。
+## 开发者
 
-详见 `docs/ARCHITECTURE.md`（架构与"什么是真的/什么是桩"清单）、`docs/ROADMAP.md`（v0.2 任务）、`docs/INQUIRYPILOT_ASSESSMENT.md`（首个业务模块的证据评估）。
-
-## 技术栈
-
-Python 3.12 · FastAPI · SQLite（WAL）· Jinja2 服务端渲染（无构建步骤、无外部 CDN）· httpx · pytest。
-单进程 = Web + 后台 Worker 线程，Windows 双击即用；第一阶段刻意不用 Docker/K8s/微服务。
-
-## 测试
-
-```
-.venv\Scripts\activate && pytest tests/ -q
+```bash
+python -m pip install -r requirements.txt
+python -m pytest -q
 ```
 
-## 配置
-
-复制 `.env.example` 为 `.env`。API Key 留空不影响启动，只会让对应模型不可用（任务转人工）。
-预算与审批阈值：控制台所用 `settings` 表，默认月预算 5000 元、超 50 元支出自动进审批。
+公开页面 `GET /offer`、商户 webhook `POST /api/billing/stripe`、签名自有表单 `POST /api/intake`；后台数据必须通过认证。
+不要把 `.env`、`data/` 或密钥上传 GitHub。公网部署前必须完成 HTTPS、访问控制、隐私告知、邮件投递、收款实测、数据恢复演练。
