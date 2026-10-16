@@ -190,6 +190,7 @@ def handle_llm_probe(db, task, log):
             log("warning", "Provider 未配置，转人工粘贴流程（awaiting_input）")
             return "等待人工输入"
     cost = float(result.get("cost_cny", 0) or 0)
+    mode_label = "人工粘贴回答" if manual_answer else provider.label
     if cost > 0:
         finance_mod.record(db, "api_cost", cost, category=f"llm/{provider.name}",
                            description=f"任务 #{task['id']} 模型调用 "
@@ -197,13 +198,13 @@ def handle_llm_probe(db, task, log):
                            ref_type="task", ref_id=task["id"], is_simulated=False)
         log("info", f"API 消耗已记账：¥{cost}")
     else:
-        log("info", "本地规则引擎：零费用")
+        log("info", "人工粘贴、未调用 API" if manual_answer else "本地规则引擎：零费用")
     art_dir = Path(db.path).parent / "artifacts"
     art_dir.mkdir(parents=True, exist_ok=True)
     fname = f"llm-{task['id']}.md"
     (art_dir / fname).write_text(result["text"], encoding="utf-8")
     tasks_mod.save_artifact(db, task["id"], fname, str(art_dir / fname), "text/markdown")
-    return f"模型调用完成（{provider.label}，费用 ¥{cost}）"
+    return f"内容处理完成（{mode_label}，费用 ¥{cost}）"
 
 
 HANDLERS = {

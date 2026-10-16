@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 import markdown
+import bleach
 from fastapi import FastAPI, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -172,6 +173,9 @@ def create_app(db_path=None):
             rev.edit_draft(db, lead_id, draft)
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e))
+        except (OSError, TimeoutError, mailer.smtplib.SMTPException):
+            raise HTTPException(status_code=503,
+                detail="发送结果不确定。请先查发件箱，禁止盲目重发")
         return RedirectResponse(f"/leads/{lead_id}", status_code=303)
 
     @app.post("/leads/{lead_id}/send")
@@ -349,8 +353,14 @@ def create_app(db_path=None):
         report = dict(row) if row else None
         html, sources, stats = "", [], {}
         if report:
-            html = markdown.markdown(report["report_md"] or "",
-                                     extensions=["tables", "fenced_code"])
+            rendered = markdown.markdown(report["report_md"] or "",
+                                         extensions=["tables", "fenced_code"])
+            html = bleach.clean(rendered,
+                tags=["h1","h2","h3","h4","p","br","a","strong","em","ul","ol",
+                      "li","blockquote","pre","code","table","thead","tbody","tr",
+                      "th","td","hr"],
+                attributes={"a": ["href", "title"]},
+                protocols=["http", "https"], strip=True)
             sources = jload(report.get("sources_json"), [])
             stats = jload(report.get("stats_json"), {})
         return templates.TemplateResponse(request, "report_detail.html", {

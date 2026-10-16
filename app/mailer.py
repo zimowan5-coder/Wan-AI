@@ -1,6 +1,7 @@
 """Safe, opt-in inbox polling and operator-approved SMTP replies."""
 import imaplib
 import os
+import hashlib
 import smtplib
 from email import message_from_bytes
 from email.message import EmailMessage
@@ -33,7 +34,15 @@ def poll_inbox(db, limit=25):
         status, data = mailbox.uid("search", None, "UNSEEN")
         if status != "OK":
             raise RuntimeError("IMAP search failed")
-        for uid in (data[0] or b"").split()[-max(1,min(limit,100)):]:
+        _, validity_data = mailbox.response("UIDVALIDITY")
+        validity = (validity_data[0] or b"unknown").decode("ascii", errors="ignore") if validity_data else "unknown"
+        for uid in (data[0] or b"").split():
+            if count >= max(1, min(limit, 100)):
+                break
+            external_id = f"{env['WANAI_IMAP_USER']}:{validity}:{uid.decode('ascii','ignore')}"
+            key = hashlib.sha256(("imap\0" + external_id).encode()).hexdigest()
+            if db.query_one("SELECT id FROM leads WHERE external_key=?", (key,)):
+                continue
             status, parts = mailbox.uid("fetch", uid, "(BODY.PEEK[])")
             if status != "OK":
                 continue
@@ -57,7 +66,7 @@ def poll_inbox(db, limit=25):
             subject = _decoded(msg.get("Subject"))
             _, inserted = revenue.capture(
                 db, source="imap",
-                external_id=f"{env['WANAI_IMAP_USER']}:{uid.decode('ascii','ignore')}",
+                external_id=external_id,
                 sender_email=address, text=body, subject=subject,
                 sender_name=_decoded(parseaddr(msg.get("From") or "")[0]))
             count += int(inserted)
