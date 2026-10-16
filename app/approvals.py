@@ -97,4 +97,7 @@ def decide(db, approval_id, approve: bool, by="owner", note=""):
                 "UPDATE tasks SET status='pending', updated_at=? WHERE id=?",
                 (now_iso(), task["id"]),
             )
+    if task and phase == "mid":
+        from . import revenue
+        revenue.approve_draft(db, task["id"], approve)
     return new_status

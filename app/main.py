@@ -5,14 +5,22 @@ Windows 一键启动见 scripts/start_windows.bat
 """
 import json
 import threading
+import os
+from dotenv import load_dotenv
 from pathlib import Path
 
 import markdown
-from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+import bleach
+from fastapi import FastAPI, Form, Request, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from . import revenue as rev
+from . import billing
+from . import mailer
+from . import configuration
+from .security import owner_guard, check_signature
 from . import approvals as ap
 from . import finance as fin
 from . import tasks as tasks_mod
@@ -23,6 +31,7 @@ from .modules import inquirypilot  # noqa: F401 触发注册
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DB = BASE_DIR / "data" / "wanai.db"
+load_dotenv(BASE_DIR / ".env", override=False)
 
 DEFAULT_SETTINGS = {
     "monthly_budget_cny": "5000",
@@ -48,9 +57,185 @@ def create_app(db_path=None):
 
     app = FastAPI(title="Wan's AI Business OS v0.1")
     app.state.db = db
+    tasks_mod.quarantine_interrupted(db)
+    app.middleware("http")(owner_guard)
     templates = Jinja2Templates(directory=str(BASE_DIR / "web" / "templates"))
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web" / "static")),
               name="static")
+
+    # ---------- 公开服务介绍：与私有管理控制台分离 ----------
+    @app.get("/offer", response_class=HTMLResponse)
+    def offer(request: Request):
+        checkout = os.environ.get("WANAI_CHECKOUT_URL", "").strip()
+        # Only HTTPS provider-hosted checkout links, no javascript: or unsafe redirects.
+        if not checkout.startswith(("https://buy.stripe.com/", "https://checkout.stripe.com/")):
+            checkout = ""
+        contact = rev.clean_email(os.environ.get("WANAI_FROM_EMAIL", ""))
+        return templates.TemplateResponse(request, "offer.html", {
+            "checkout_url": checkout, "contact_email": contact,
+        })
+
+    # ---------- 实际经营：询盘、交付与收款 ----------
+    @app.get("/healthz")
+    def healthz():
+        return {"status": "ok", "version": "0.2"}
+
+    @app.get("/setup", response_class=HTMLResponse)
+    def setup_page(request: Request):
+        return templates.TemplateResponse(request, "setup.html", {
+            "readiness": rev.readiness(), "pending_approvals_count": ap.count_pending(db),
+        })
+
+    @app.post("/setup/connectors")
+    def save_connectors(
+        WANAI_IMAP_HOST: str = Form(""), WANAI_IMAP_USER: str = Form(""),
+        WANAI_IMAP_PASSWORD: str = Form(""), WANAI_SMTP_HOST: str = Form(""),
+        WANAI_SMTP_USER: str = Form(""), WANAI_SMTP_PASSWORD: str = Form(""),
+        WANAI_FROM_EMAIL: str = Form(""), WANAI_CHECKOUT_URL: str = Form(""),
+        STRIPE_WEBHOOK_SECRET: str = Form("")):
+        try:
+            configuration.configure(BASE_DIR,
+                WANAI_IMAP_HOST=WANAI_IMAP_HOST, WANAI_IMAP_USER=WANAI_IMAP_USER,
+                WANAI_IMAP_PASSWORD=WANAI_IMAP_PASSWORD,
+                WANAI_SMTP_HOST=WANAI_SMTP_HOST, WANAI_SMTP_USER=WANAI_SMTP_USER,
+                WANAI_SMTP_PASSWORD=WANAI_SMTP_PASSWORD,
+                WANAI_FROM_EMAIL=WANAI_FROM_EMAIL,
+                WANAI_CHECKOUT_URL=WANAI_CHECKOUT_URL,
+                STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return RedirectResponse("/setup", status_code=303)
+
+    @app.post("/setup/email")
+    def setup_email(imap_host: str = Form(""), imap_port: str = Form(""),
+                    imap_user: str = Form(""), imap_password: str = Form(""),
+                    smtp_host: str = Form(""), smtp_port: str = Form(""),
+                    smtp_user: str = Form(""), smtp_password: str = Form(""),
+                    from_email: str = Form("")):
+        from .settings_ui import save_options
+        try:
+            save_options({
+                "WANAI_IMAP_HOST": imap_host, "WANAI_IMAP_PORT": imap_port,
+                "WANAI_IMAP_USER": imap_user, "WANAI_IMAP_PASSWORD": imap_password,
+                "WANAI_SMTP_HOST": smtp_host, "WANAI_SMTP_PORT": smtp_port,
+                "WANAI_SMTP_USER": smtp_user, "WANAI_SMTP_PASSWORD": smtp_password,
+                "WANAI_FROM_EMAIL": from_email,
+            }, BASE_DIR / ".env")
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc))
+        return RedirectResponse("/setup?saved=1", status_code=303)
+
+    @app.post("/setup/payments")
+    def setup_payments(checkout_url: str = Form(""), stripe_webhook_secret: str = Form(""),
+                       intake_secret: str = Form("")):
+        from .settings_ui import save_options
+        try:
+            save_options({
+                "WANAI_CHECKOUT_URL": checkout_url,
+                "STRIPE_WEBHOOK_SECRET": stripe_webhook_secret,
+                "WANAI_INTAKE_SECRET": intake_secret,
+            }, BASE_DIR / ".env")
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc))
+        return RedirectResponse("/setup?saved=1", status_code=303)
+
+    @app.get("/leads", response_class=HTMLResponse)
+    def leads_page(request: Request):
+        return templates.TemplateResponse(request, "leads.html", {
+            "leads": rev.list_leads(db), "metrics": rev.metrics(db),
+            "pending_approvals_count": ap.count_pending(db),
+        })
+
+    @app.post("/leads")
+    def capture_manually(sender_email: str = Form(...), text: str = Form(...),
+                         subject: str = Form("")):
+        try:
+            lead, _ = rev.capture(db, source="manual", external_id="",
+                                  sender_email=sender_email, text=text, subject=subject)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return RedirectResponse(f"/leads/{lead['id']}", status_code=303)
+
+    @app.get("/leads/{lead_id}", response_class=HTMLResponse)
+    def lead_detail(request: Request, lead_id: int):
+        lead = rev.get_lead(db, lead_id)
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        linked = tasks_mod.get_task(db, lead["task_id"]) if lead["task_id"] else None
+        return templates.TemplateResponse(request, "lead_detail.html", {
+            "lead": lead, "task": linked, "pending_approvals_count": ap.count_pending(db),
+            "smtp_ready": rev.readiness()["smtp"],
+        })
+
+    @app.post("/leads/{lead_id}/draft")
+    def edit_lead_draft(lead_id: int, draft: str = Form(...)):
+        try:
+            rev.edit_draft(db, lead_id, draft)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except (OSError, TimeoutError, mailer.smtplib.SMTPException):
+            raise HTTPException(status_code=503,
+                detail="发送结果不确定。请先查发件箱，禁止盲目重发")
+        return RedirectResponse(f"/leads/{lead_id}", status_code=303)
+
+    @app.post("/leads/{lead_id}/send")
+    def send_lead(lead_id: int):
+        try:
+            mailer.send_approved(db, lead_id)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        return RedirectResponse(f"/leads/{lead_id}", status_code=303)
+
+    @app.post("/leads/{lead_id}/outcome")
+    def lead_outcome(lead_id: int, status: str = Form(...)):
+        try:
+            rev.mark_outcome(db, lead_id, status)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        return RedirectResponse(f"/leads/{lead_id}", status_code=303)
+
+    @app.post("/inbox/sync")
+    def sync_inbox():
+        try:
+            mailer.poll_inbox(db)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"收件箱连接失败：{type(e).__name__}")
+        return RedirectResponse("/leads", status_code=303)
+
+    @app.post("/api/intake")
+    async def intake(request: Request):
+        raw = await request.body()
+        if len(raw) > 24_000:
+            raise HTTPException(413, "payload too large")
+        secret = os.environ.get("WANAI_INTAKE_SECRET", "")
+        if not secret:
+            raise HTTPException(503, "intake disabled")
+        if not check_signature(secret, raw, request.headers.get("x-wanai-signature", "")):
+            raise HTTPException(401, "bad signature")
+        try:
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("JSON object required")
+            lead, created = rev.capture(
+                db, source="webhook", external_id=str(payload.get("event_id") or ""),
+                sender_email=payload.get("email", ""), text=payload.get("message", ""),
+                subject=str(payload.get("subject") or ""))
+        except (ValueError, TypeError, UnicodeError) as e:
+            raise HTTPException(422, str(e))
+        return {"accepted": True, "created": created, "lead_id": lead["id"]}
+
+    @app.post("/api/billing/stripe")
+    async def stripe_webhook(request: Request):
+        raw = await request.body()
+        if len(raw) > 100_000:
+            raise HTTPException(413, "event too large")
+        if not os.environ.get("STRIPE_WEBHOOK_SECRET"):
+            raise HTTPException(503, "billing webhook disabled")
+        try:
+            event = billing.verify_stripe_event(raw, request.headers.get("stripe-signature", ""))
+            return billing.handle_event(db, event)
+        except (ValueError, KeyError) as e:
+            raise HTTPException(400, "unverified or invalid payment event")
 
     # ---------- 控制台 ----------
     @app.get("/", include_in_schema=False)
@@ -80,6 +265,9 @@ def create_app(db_path=None):
             "recent_tasks": tasks_mod.list_tasks(db, limit=10),
             "pending_approvals": ap.list_approvals(db, status="pending", limit=10),
             "modules": modules_base.list_modules(),
+            "lead_metrics": rev.metrics(db),
+            "next_action": rev.next_action(db),
+            "readiness": rev.readiness(),
             "pending_approvals_count": stats["approvals_pending"],
         })
 
@@ -165,8 +353,14 @@ def create_app(db_path=None):
         report = dict(row) if row else None
         html, sources, stats = "", [], {}
         if report:
-            html = markdown.markdown(report["report_md"] or "",
-                                     extensions=["tables", "fenced_code"])
+            rendered = markdown.markdown(report["report_md"] or "",
+                                         extensions=["tables", "fenced_code"])
+            html = bleach.clean(rendered,
+                tags=["h1","h2","h3","h4","p","br","a","strong","em","ul","ol",
+                      "li","blockquote","pre","code","table","thead","tbody","tr",
+                      "th","td","hr"],
+                attributes={"a": ["href", "title"]},
+                protocols=["http", "https"], strip=True)
             sources = jload(report.get("sources_json"), [])
             stats = jload(report.get("stats_json"), {})
         return templates.TemplateResponse(request, "report_detail.html", {
@@ -200,6 +394,7 @@ def create_app(db_path=None):
     def approvals_page(request: Request):
         return templates.TemplateResponse(request, "approvals.html", {
             "request": request, "approvals": ap.list_approvals(db),
+            "review_leads": rev.get_review_leads(db),
             "pending_approvals_count": ap.count_pending(db),
         })
 

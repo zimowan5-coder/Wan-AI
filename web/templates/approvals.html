@@ -15,6 +15,12 @@
       {% if a.note %}<tr><th>备注</th><td>{{ a.note }}</td></tr>{% endif %}
     </tbody>
   </table>
+  {% if review_leads.get(a.id) %}
+  {% set lead = review_leads[a.id] %}
+  <p><strong>发送对象：</strong>{{ lead.sender_email }} · <a href="/leads/{{ lead.id }}">先编辑、核查这条询盘</a></p>
+  <p><strong>此审批将确认以下实际邮件内容（不会立即发送）：</strong></p>
+  <pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ lead.draft }}</pre>
+  {% endif %}
   {% if a.detail_json %}
   <h3>详情</h3>
   <pre class="code">{{ a.detail_json }}</pre>

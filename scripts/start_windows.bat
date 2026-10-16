@@ -2,7 +2,7 @@
 chcp 65001 >nul
 cd /d %~dp0..
 echo ============================================
-echo  Wan's AI Business OS v0.1
+echo  Wan's AI Business OS v0.2
 echo ============================================
 echo [1/4] 检查 Python ...
 python --version >nul 2>&1
@@ -26,10 +26,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-if not exist .env (
-  echo [提示] 未发现 .env，已按模板生成（API Key 留空，不影响启动）
-  copy .env.example .env >nul
-)
+python scripts\bootstrap.py
 echo [4/4] 启动经营控制台 ...
 echo.
 echo   控制台地址： http://127.0.0.1:8931

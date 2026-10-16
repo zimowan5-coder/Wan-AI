@@ -6,9 +6,11 @@
 """
 import threading
 import time
+import os
 import traceback
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from pathlib import Path
+from html import escape
 
 from . import tasks as tasks_mod
 from . import finance as finance_mod
@@ -58,8 +60,8 @@ def handle_sample_fulfillment(db, task, log):
         content = f"""<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
 <title>样品 - 任务 #{task_id}</title>
 <style>body{{font-family:sans-serif;max-width:720px;margin:40px auto;padding:0 16px}}</style>
-</head><body><h1>样品交付物</h1><p><b>任务</b> #{task_id} · {task['title']}</p>
-<h2>需求简述</h2><p>{brief}</p>
+</head><body><h1>样品交付物</h1><p><b>任务</b> #{task_id} · {escape(task['title'])}</p>
+<h2>需求简述</h2><p>{escape(brief)}</p>
 <h2>说明</h2><p>此为 Wan's AI v0.1 样品制作任务生成的占位交付物（本地模板生成，零成本）。
 真实业务中此处应为按客户需求定制的内容。</p></body></html>"""
         mime = "text/html"
@@ -101,6 +103,9 @@ def handle_inquiry_process(db, task, log):
     log("info", f"分类结果：意图={analysis['intent']} 语言={analysis['lang']} "
                 f"产品关键词={analysis['product_keywords'][:5]}")
     reply = draft_reply(analysis)
+    if payload.get("lead_id"):
+        reply = (reply.replace(" within 24 hours", " as soon as possible")
+                      .replace("将在 24 小时内", "会尽快"))
     art_dir = Path(db.path).parent / "artifacts"
     art_dir.mkdir(parents=True, exist_ok=True)
     fname = f"inquiry-{task['id']}-reply.md"
@@ -109,6 +114,12 @@ def handle_inquiry_process(db, task, log):
                     f"## 分析\n\n{jdump(analysis, )}\n\n## 回复草稿\n\n{reply}\n",
                     encoding="utf-8")
     tasks_mod.save_artifact(db, task["id"], fname, str(path), "text/markdown")
+    if payload.get("lead_id"):
+        from . import revenue
+        score = 35 + (20 if analysis["intent"] in ("询价", "下单") else 0)
+        score += 15 if analysis["quantities"] else 0
+        score += 10 if analysis["urgency"] == "high" else 0
+        revenue.set_draft(db, int(payload["lead_id"]), reply, analysis["intent"], min(100, score))
     # 对外发送必须审批：建审批单，任务等待
     from . import approvals as ap
     aid = ap.create(db, "publish", f"审批：发送询盘回复（任务 #{task['id']}）",
@@ -143,19 +154,43 @@ def handle_llm_probe(db, task, log):
     prompt = payload.get("prompt") or payload.get("input_text") or ""
     if not prompt:
         raise ValueError("payload.prompt 为空")
-    provider = get_provider(provider_name)
-    log("info", f"调用模型：{provider.label}")
-    try:
-        result = provider.complete(prompt)
-    except NotConfigured as e:
-        # 转人工：把提示词展示给用户去订阅里跑，粘贴回来继续
-        tasks_mod.request_input(
-            db, task["id"],
-            f"[需人工] {provider.label}不可用：{e}\n\n请将以下提示词粘贴到你的 ChatGPT/Claude 订阅中，"
-            f"把回答粘贴回本任务继续：\n\n{prompt[:2000]}")
-        log("warning", "Provider 未配置，转人工粘贴流程（awaiting_input）")
-        return "等待人工输入"
+    manual_answer = payload.get("input_text") if payload.get("prompt") else None
+    if manual_answer:
+        # Subscription-assisted/manual handoff: do NOT repeat the provider call.
+        result = {"text": str(manual_answer), "cost_cny": 0, "provider": "manual",
+                  "input_tokens": 0, "output_tokens": 0}
+        provider = get_provider("local")
+        log("info", "采纳用户人工粘贴的模型输出，未调用付费 API")
+    else:
+        provider = get_provider(provider_name)
+        if provider.name != "local":
+            # Extra explicit safeguard: even with a leaked/copied API key, no paid calls by default.
+            if os.environ.get("WANAI_ENABLE_PAID_AI", "") != "I_ACCEPT_PAID_API_COSTS":
+                tasks_mod.request_input(db, task["id"],
+                    "付费 API 默认关闭。请将原提示词贴到你的 AI 订阅应用中，"
+                    "然后把完整答案粘贴回此任务，或者由管理员明确开启付费 API。\n\n"
+                    + prompt[:2000])
+                return "待人工粘贴 AI 输出（没有外部 API 调用）"
+            budget = float(tasks_mod.get_setting(db, "monthly_budget_cny", "5000"))
+            spent = db.query_one("SELECT COALESCE(SUM(amount_cny),0) AS total FROM ledger "
+                "WHERE kind IN ('api_cost','expense') AND is_simulated=0 "
+                "AND substr(ts,1,7)=strftime('%Y-%m','now')")["total"]
+            if float(spent) >= budget:
+                tasks_mod.request_input(db, task["id"], "已达到本月记账预算，付费 API 停止。"
+                    "请使用人工粘贴流程，不要提高预算绕过成本核算。\n\n" + prompt[:2000])
+                return "预算保护：等待人工输入"
+        log("info", f"调用模型：{provider.label}")
+        try:
+            result = provider.complete(prompt)
+        except NotConfigured as e:
+            tasks_mod.request_input(
+                db, task["id"],
+                f"[需人工] {provider.label}不可用：{e}\n\n请将以下提示词粘贴到你的 ChatGPT/Claude 订阅中，"
+                f"把回答粘贴回本任务继续：\n\n{prompt[:2000]}")
+            log("warning", "Provider 未配置，转人工粘贴流程（awaiting_input）")
+            return "等待人工输入"
     cost = float(result.get("cost_cny", 0) or 0)
+    mode_label = "人工粘贴回答" if manual_answer else provider.label
     if cost > 0:
         finance_mod.record(db, "api_cost", cost, category=f"llm/{provider.name}",
                            description=f"任务 #{task['id']} 模型调用 "
@@ -163,13 +198,13 @@ def handle_llm_probe(db, task, log):
                            ref_type="task", ref_id=task["id"], is_simulated=False)
         log("info", f"API 消耗已记账：¥{cost}")
     else:
-        log("info", "本地规则引擎：零费用")
+        log("info", "人工粘贴、未调用 API" if manual_answer else "本地规则引擎：零费用")
     art_dir = Path(db.path).parent / "artifacts"
     art_dir.mkdir(parents=True, exist_ok=True)
     fname = f"llm-{task['id']}.md"
     (art_dir / fname).write_text(result["text"], encoding="utf-8")
     tasks_mod.save_artifact(db, task["id"], fname, str(art_dir / fname), "text/markdown")
-    return f"模型调用完成（{provider.label}，费用 ¥{cost}）"
+    return f"内容处理完成（{mode_label}，费用 ¥{cost}）"
 
 
 HANDLERS = {
@@ -190,8 +225,14 @@ def run_task_once(db, task_id):
     if not task:
         raise ValueError(f"task {task_id} not found")
     from .db import now_iso
-    db.execute("UPDATE tasks SET status='running', started_at=?, attempts=attempts+1,"
-               " updated_at=? WHERE id=?", (now_iso(), now_iso(), task_id))
+    if task["status"] == "pending":
+        claimed = db.execute("UPDATE tasks SET status='running', started_at=?, attempts=attempts+1,"
+                             " updated_at=? WHERE id=? AND status='pending'",
+                             (now_iso(), now_iso(), task_id))
+        if claimed.rowcount != 1:
+            raise ValueError("task already claimed")
+    elif task["status"] != "running":
+        raise ValueError("task not executable")
     task = tasks_mod.get_task(db, task_id)
 
     def log(level, msg):
@@ -202,10 +243,19 @@ def run_task_once(db, task_id):
         tasks_mod.finish(db, task_id, False, error=f"未知任务类型 {task['type']}")
         return False, "unknown type"
     timeout = task["timeout_sec"] or 300
-    with ThreadPoolExecutor(max_workers=1) as ex:
+    ex = ThreadPoolExecutor(max_workers=1)
+    try:
         fut = ex.submit(_run_handler, db, handler, task, log)
         try:
             ok, summary = fut.result(timeout=timeout)
+        except FutureTimeoutError:
+            # CPython cannot cancel an already-running thread. Do not reschedule
+            # an ambiguous job; the handler may still finish its external effect.
+            log("error", "任务超过软超时时限，已隔离为失败，不自动重试。"
+                         "请核对外部系统是否已发生副作用。线程可能继续运行。")
+            tasks_mod.finish(
+                db, task_id, False, error="软超时：后台线程无法强制终止，请人工核查后决定是否重试")
+            return False, "soft timeout; isolated"
         except Exception as e:
             tb = traceback.format_exc(limit=3)
             log("error", f"handler 异常：{e}\n{tb}")
@@ -213,6 +263,8 @@ def run_task_once(db, task_id):
             err = str(e)
         else:
             err = ""
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
     # awaiting_input / awaiting_approval 是 handler 主动设置的终态之一，不覆盖
     cur_status = tasks_mod.get_task(db, task_id)["status"]
     if cur_status == "running":
@@ -260,9 +312,34 @@ def _log_system(db, msg):
         pass
 
 
+def inbox_loop(db, stop_event):
+    from .mailer import poll_inbox
+    while not stop_event.is_set():
+        try:
+            poll_inbox(db)
+        except Exception as e:
+            _log_system(db, f"IMAP同步失败（将在下次重试）：{type(e).__name__}")
+        stop_event.wait(300)
+
+
+def backup_loop(db, stop_event):
+    from .backup import snapshot
+    while not stop_event.is_set():
+        try:
+            path = snapshot(db)
+            _log_system(db, f"本地备份创建成功：{path.name}")
+        except Exception as e:
+            _log_system(db, f"本地备份失败：{type(e).__name__}")
+        stop_event.wait(24 * 3600)
+
+
 def start_worker(db):
     stop = threading.Event()
     t = threading.Thread(target=worker_loop, args=(db, stop), daemon=True,
                          name="wanai-worker")
     t.start()
+    threading.Thread(target=inbox_loop, args=(db, stop), daemon=True,
+                     name="wanai-inbox").start()
+    threading.Thread(target=backup_loop, args=(db, stop), daemon=True,
+                     name="wanai-backup").start()
     return stop, t
