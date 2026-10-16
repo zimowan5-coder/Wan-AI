@@ -8,7 +8,7 @@ import threading
 import time
 import os
 import traceback
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from pathlib import Path
 from html import escape
 
@@ -225,9 +225,11 @@ def run_task_once(db, task_id):
         raise ValueError(f"task {task_id} not found")
     from .db import now_iso
     if task["status"] == "pending":
-        db.execute("UPDATE tasks SET status='running', started_at=?, attempts=attempts+1,"
-                   " updated_at=? WHERE id=? AND status='pending'",
-                   (now_iso(), now_iso(), task_id))
+        claimed = db.execute("UPDATE tasks SET status='running', started_at=?, attempts=attempts+1,"
+                             " updated_at=? WHERE id=? AND status='pending'",
+                             (now_iso(), now_iso(), task_id))
+        if claimed.rowcount != 1:
+            raise ValueError("task already claimed")
     elif task["status"] != "running":
         raise ValueError("task not executable")
     task = tasks_mod.get_task(db, task_id)
@@ -240,10 +242,19 @@ def run_task_once(db, task_id):
         tasks_mod.finish(db, task_id, False, error=f"未知任务类型 {task['type']}")
         return False, "unknown type"
     timeout = task["timeout_sec"] or 300
-    with ThreadPoolExecutor(max_workers=1) as ex:
+    ex = ThreadPoolExecutor(max_workers=1)
+    try:
         fut = ex.submit(_run_handler, db, handler, task, log)
         try:
             ok, summary = fut.result(timeout=timeout)
+        except FutureTimeoutError:
+            # CPython cannot cancel an already-running thread. Do not reschedule
+            # an ambiguous job; the handler may still finish its external effect.
+            log("error", "任务超过软超时时限，已隔离为失败，不自动重试。"
+                         "请核对外部系统是否已发生副作用。线程可能继续运行。")
+            tasks_mod.finish(
+                db, task_id, False, error="软超时：后台线程无法强制终止，请人工核查后决定是否重试")
+            return False, "soft timeout; isolated"
         except Exception as e:
             tb = traceback.format_exc(limit=3)
             log("error", f"handler 异常：{e}\n{tb}")
@@ -251,6 +262,8 @@ def run_task_once(db, task_id):
             err = str(e)
         else:
             err = ""
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
     # awaiting_input / awaiting_approval 是 handler 主动设置的终态之一，不覆盖
     cur_status = tasks_mod.get_task(db, task_id)["status"]
     if cur_status == "running":
