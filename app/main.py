@@ -61,6 +61,18 @@ def create_app(db_path=None):
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web" / "static")),
               name="static")
 
+    # ---------- 公开服务介绍：与私有管理控制台分离 ----------
+    @app.get("/offer", response_class=HTMLResponse)
+    def offer(request: Request):
+        checkout = os.environ.get("WANAI_CHECKOUT_URL", "").strip()
+        # Only HTTPS provider-hosted checkout links, no javascript: or unsafe redirects.
+        if not checkout.startswith(("https://buy.stripe.com/", "https://checkout.stripe.com/")):
+            checkout = ""
+        contact = rev.clean_email(os.environ.get("WANAI_FROM_EMAIL", ""))
+        return templates.TemplateResponse(request, "offer.html", {
+            "checkout_url": checkout, "contact_email": contact,
+        })
+
     # ---------- 实际经营：询盘、交付与收款 ----------
     @app.get("/healthz")
     def healthz():
@@ -188,6 +200,7 @@ def create_app(db_path=None):
             "pending_approvals": ap.list_approvals(db, status="pending", limit=10),
             "modules": modules_base.list_modules(),
             "lead_metrics": rev.metrics(db),
+            "next_action": rev.next_action(db),
             "readiness": rev.readiness(),
             "pending_approvals_count": stats["approvals_pending"],
         })

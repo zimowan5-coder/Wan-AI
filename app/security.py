@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 from fastapi.responses import PlainTextResponse
 
-PUBLIC_ENDPOINTS = {"/healthz", "/api/intake", "/api/billing/stripe"}
+PUBLIC_ENDPOINTS = {"/healthz", "/offer", "/api/intake", "/api/billing/stripe"}
 
 
 def check_signature(secret, raw, presented):

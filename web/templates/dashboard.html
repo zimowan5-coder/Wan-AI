@@ -2,6 +2,11 @@
 {% block title %}控制台 - Wan's AI · 商业操作系统 v0.1{% endblock %}
 {% block content %}
 <h1>经营控制台</h1>
+<div class="card">
+  <h2>今天优先做这一件事</h2>
+  <h3>{{ next_action.title }}</h3><p>{{ next_action.why }}</p>
+  <a class="btn btn-primary" href="{{ next_action.url }}">立即处理</a>
+</div>
 
 <div class="grid cards-4">
   <div class="card stat"><div class="stat-num">{{ stats.tasks_pending }}</div><div class="stat-label">任务待执行</div></div>

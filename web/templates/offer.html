@@ -1,0 +1,26 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InquiryPilot · 外贸询盘分类与回复辅助</title>
+<style>body{font-family:system-ui,-apple-system,sans-serif;line-height:1.7;background:#f6f8fa;color:#182434;margin:0}
+main{max-width:800px;margin:55px auto;padding:18px}.card{padding:32px;background:#fff;border-radius:16px;box-shadow:0 3px 24px #dce2e6}
+a.cta{display:inline-block;margin:18px 0;padding:12px 20px;background:#145db2;color:#fff;border-radius:8px;text-decoration:none}
+small{color:#5c6b7b}</style></head><body><main><div class="card">
+<h1>询盘少漏看，英文回复更有条理</h1>
+<p>InquiryPilot 帮已有真实客户询盘的小型外贸团队，对来自自己邮箱的请求进行意图分类、要素提取、回复草稿和待办梳理。</p>
+<h2>你能得到什么？</h2>
+<ul><li>自动整理询价、打样、订单、售后等类别</li>
+<li>提取数量、市场、紧急程度等关键要求</li>
+<li>自动生成英文/中文草稿，人工确认后单封发送</li>
+<li>查看跟进状态，不把模拟数据当成订单</li></ul>
+<h2>适合谁？</h2>
+<p>每周已经有 5～50 条海外询盘，需要减少遗漏、整理邮件的小型外贸团队。</p>
+<h2>体验与购买</h2>
+{% if checkout_url %}
+<p>体验服务可通过安全付款链接申请。范围和价格以支付页面及双方服务条款为准。</p>
+<a class="cta" href="{{ checkout_url }}" rel="nofollow noopener">前往商户支付页面</a>
+{% else %}
+<p>目前正在邀请试点客户，正式支付入口尚未开通。</p>
+{% endif %}
+{% if contact_email %}<p>合作咨询：<a href="mailto:{{ contact_email }}">{{ contact_email }}</a></p>{% endif %}
+<small>我们不保证成交结果，不获取未经授权的个人数据，不自动群发营销邮件。正式付款前请确认服务条款、退款规则与数据隐私告知。</small>
+</div></main></body></html>

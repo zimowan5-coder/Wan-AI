@@ -122,3 +122,31 @@ def readiness():
         "payment_webhook": bool(env.get("STRIPE_WEBHOOK_SECRET")),
         "admin_auth": bool(env.get("WANAI_ADMIN_PASSWORD")),
     }
+
+def next_action(db):
+    """One deterministic suggested action: prevent owner's decision overload."""
+    setup = readiness()
+    pulse = metrics(db)
+    if not setup["admin_auth"]:
+        return {"title": "先保护你的控制台", "why": "当前未配置管理密码；只有本地访问可用。",
+                "url": "/setup"}
+    if pulse["awaiting_review"]:
+        return {"title": f"审核 {pulse['awaiting_review']} 条询盘草稿",
+                "why": "真正能带来客户回复的动作，优先于继续生成 AI 报告。", "url": "/approvals"}
+    if pulse["ready_to_send"]:
+        return {"title": f"确认发送 {pulse['ready_to_send']} 条已审批回复",
+                "why": "已经审核的草稿不会自动发送，请检查后逐封发出。", "url": "/leads"}
+    if not setup["inbound_imap"] and not setup["inbound_webhook"] and not pulse["leads"]:
+        return {"title": "接入第一条真实询盘", "why": "系统目前没有获授权的客户来信源。",
+                "url": "/setup"}
+    if not pulse["leads"]:
+        return {"title": "寻找第一位愿意试用的客户", "why": "本阶段唯一目标是获取真实用户反馈，而不是增加 Agent。",
+                "url": "/offer"}
+    if not setup["smtp"]:
+        return {"title": "配置安全的发送邮箱", "why": "已有询盘但不能交付跟进。",
+                "url": "/setup"}
+    if not setup["payment_webhook"]:
+        return {"title": "完成真实收款验签", "why": "先测试小额付款，避免把模拟订单当实际收入。",
+                "url": "/setup"}
+    return {"title": "查看每周真实成交和人工成本", "why": "只保留提高回复质量、付费转化和净收款的实验。",
+            "url": "/leads"}
