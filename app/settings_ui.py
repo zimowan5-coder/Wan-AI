@@ -26,7 +26,7 @@ def _validate(key, raw):
         return ""
     if "\x00" in val or "\r" in val or "\n" in val or len(val) > 1024:
         raise ValueError(f"{key} 含非法字符或长度超限")
-    if key.endswith("_HOST") and not re.fullmatch(r"[A-Za-z0-9.-]{2,255}", val):
+    if key.endswith("_HOST") and (not re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", val) or val.lower().endswith((".local", ".internal", ".localhost"))):
         raise ValueError(f"{key} 必须为合法服务器域名/IP，而非 URL")
     if key.endswith("_PORT") and (not val.isdecimal() or not 1 <= int(val) <= 65535):
         raise ValueError(f"{key} 端口须为 1-65535")
