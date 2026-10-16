@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from . import revenue as rev
 from . import billing
 from . import mailer
+from . import configuration
 from .security import owner_guard, check_signature
 from . import approvals as ap
 from . import finance as fin
@@ -83,6 +84,26 @@ def create_app(db_path=None):
         return templates.TemplateResponse(request, "setup.html", {
             "readiness": rev.readiness(), "pending_approvals_count": ap.count_pending(db),
         })
+
+    @app.post("/setup/connectors")
+    def save_connectors(
+        WANAI_IMAP_HOST: str = Form(""), WANAI_IMAP_USER: str = Form(""),
+        WANAI_IMAP_PASSWORD: str = Form(""), WANAI_SMTP_HOST: str = Form(""),
+        WANAI_SMTP_USER: str = Form(""), WANAI_SMTP_PASSWORD: str = Form(""),
+        WANAI_FROM_EMAIL: str = Form(""), WANAI_CHECKOUT_URL: str = Form(""),
+        STRIPE_WEBHOOK_SECRET: str = Form("")):
+        try:
+            configuration.configure(BASE_DIR,
+                WANAI_IMAP_HOST=WANAI_IMAP_HOST, WANAI_IMAP_USER=WANAI_IMAP_USER,
+                WANAI_IMAP_PASSWORD=WANAI_IMAP_PASSWORD,
+                WANAI_SMTP_HOST=WANAI_SMTP_HOST, WANAI_SMTP_USER=WANAI_SMTP_USER,
+                WANAI_SMTP_PASSWORD=WANAI_SMTP_PASSWORD,
+                WANAI_FROM_EMAIL=WANAI_FROM_EMAIL,
+                WANAI_CHECKOUT_URL=WANAI_CHECKOUT_URL,
+                STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return RedirectResponse("/setup", status_code=303)
 
     @app.get("/leads", response_class=HTMLResponse)
     def leads_page(request: Request):

@@ -1,5 +1,25 @@
 {% extends "base.html" %}
-{% block title %}首次配置 | Wan's AI{% endblock %}
+{% block title %}首次配置 | Wan's AI<div class="card">
+<h2>不写代码：直接填写服务连接信息</h2>
+<p>密钥只写入本地 .env，不在页面显示或提交到 GitHub。留空表示不修改已存在的设置。</p>
+<form method="post" action="/setup/connectors">
+<h3>① 专用业务邮箱（IMAP 收信）</h3>
+<label>收件服务器域名 <input name="WANAI_IMAP_HOST" placeholder="imap.gmail.com"></label>
+<label>邮箱账号 <input name="WANAI_IMAP_USER" type="email" placeholder="business@example.com"></label>
+<label>应用密码/授权码 <input name="WANAI_IMAP_PASSWORD" type="password" autocomplete="new-password"></label>
+<h3>② 专用业务邮箱（SMTP 发信）</h3>
+<label>发送服务器域名 <input name="WANAI_SMTP_HOST" placeholder="smtp.gmail.com"></label>
+<label>SMTP 账号 <input name="WANAI_SMTP_USER" type="email" placeholder="business@example.com"></label>
+<label>SMTP 应用密码/授权码 <input name="WANAI_SMTP_PASSWORD" type="password" autocomplete="new-password"></label>
+<label>发件人邮箱 <input name="WANAI_FROM_EMAIL" type="email" placeholder="business@example.com"></label>
+<h3>③ 商户收款（可跳过）</h3>
+<label>Stripe Payment Link <input name="WANAI_CHECKOUT_URL" placeholder="https://buy.stripe.com/..."></label>
+<label>Stripe Webhook 签名密钥 <input name="STRIPE_WEBHOOK_SECRET" type="password" autocomplete="new-password" placeholder="whsec_..."></label>
+<button type="submit" class="btn btn-primary">安全保存已填写的设置</button></form>
+<p>邮箱供应商通常需要你在自己的账户后台先开启应用密码。Gmail/QQ/163 的具体授权步骤由服务商决定；
+本版暂不支持仅 OAuth 的企业邮箱。连接状态仍须通过真实测试验证。</p>
+</div>
+{% endblock %}
 {% block content %}
 <h1>首次开业检查清单</h1>
 <p class="muted">系统配置状态只表示相关密钥是否存在，不等于线上服务已验证可用。</p>
