@@ -5,14 +5,20 @@ Windows 一键启动见 scripts/start_windows.bat
 """
 import json
 import threading
+import os
+from dotenv import load_dotenv
 from pathlib import Path
 
 import markdown
-from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, Form, Request, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from . import revenue as rev
+from . import billing
+from . import mailer
+from .security import owner_guard, check_signature
 from . import approvals as ap
 from . import finance as fin
 from . import tasks as tasks_mod
@@ -23,6 +29,7 @@ from .modules import inquirypilot  # noqa: F401 触发注册
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DB = BASE_DIR / "data" / "wanai.db"
+load_dotenv(BASE_DIR / ".env", override=False)
 
 DEFAULT_SETTINGS = {
     "monthly_budget_cny": "5000",
@@ -48,9 +55,108 @@ def create_app(db_path=None):
 
     app = FastAPI(title="Wan's AI Business OS v0.1")
     app.state.db = db
+    app.middleware("http")(owner_guard)
     templates = Jinja2Templates(directory=str(BASE_DIR / "web" / "templates"))
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web" / "static")),
               name="static")
+
+    # ---------- 实际经营：询盘、交付与收款 ----------
+    @app.get("/healthz")
+    def healthz():
+        return {"status": "ok", "version": "0.2"}
+
+    @app.get("/setup", response_class=HTMLResponse)
+    def setup_page(request: Request):
+        return templates.TemplateResponse(request, "setup.html", {
+            "readiness": rev.readiness(), "pending_approvals_count": ap.count_pending(db),
+        })
+
+    @app.get("/leads", response_class=HTMLResponse)
+    def leads_page(request: Request):
+        return templates.TemplateResponse(request, "leads.html", {
+            "leads": rev.list_leads(db), "metrics": rev.metrics(db),
+            "pending_approvals_count": ap.count_pending(db),
+        })
+
+    @app.post("/leads")
+    def capture_manually(sender_email: str = Form(...), text: str = Form(...),
+                         subject: str = Form("")):
+        try:
+            lead, _ = rev.capture(db, source="manual", external_id="",
+                                  sender_email=sender_email, text=text, subject=subject)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return RedirectResponse(f"/leads/{lead['id']}", status_code=303)
+
+    @app.get("/leads/{lead_id}", response_class=HTMLResponse)
+    def lead_detail(request: Request, lead_id: int):
+        lead = rev.get_lead(db, lead_id)
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        linked = tasks_mod.get_task(db, lead["task_id"]) if lead["task_id"] else None
+        return templates.TemplateResponse(request, "lead_detail.html", {
+            "lead": lead, "task": linked, "pending_approvals_count": ap.count_pending(db),
+            "smtp_ready": rev.readiness()["smtp"],
+        })
+
+    @app.post("/leads/{lead_id}/send")
+    def send_lead(lead_id: int):
+        try:
+            mailer.send_approved(db, lead_id)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        return RedirectResponse(f"/leads/{lead_id}", status_code=303)
+
+    @app.post("/leads/{lead_id}/outcome")
+    def lead_outcome(lead_id: int, status: str = Form(...)):
+        try:
+            rev.mark_outcome(db, lead_id, status)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        return RedirectResponse(f"/leads/{lead_id}", status_code=303)
+
+    @app.post("/inbox/sync")
+    def sync_inbox():
+        try:
+            mailer.poll_inbox(db)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"收件箱连接失败：{type(e).__name__}")
+        return RedirectResponse("/leads", status_code=303)
+
+    @app.post("/api/intake")
+    async def intake(request: Request):
+        raw = await request.body()
+        if len(raw) > 24_000:
+            raise HTTPException(413, "payload too large")
+        secret = os.environ.get("WANAI_INTAKE_SECRET", "")
+        if not secret:
+            raise HTTPException(503, "intake disabled")
+        if not check_signature(secret, raw, request.headers.get("x-wanai-signature", "")):
+            raise HTTPException(401, "bad signature")
+        try:
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("JSON object required")
+            lead, created = rev.capture(
+                db, source="webhook", external_id=str(payload.get("event_id") or ""),
+                sender_email=payload.get("email", ""), text=payload.get("message", ""),
+                subject=str(payload.get("subject") or ""))
+        except (ValueError, TypeError, UnicodeError) as e:
+            raise HTTPException(422, str(e))
+        return {"accepted": True, "created": created, "lead_id": lead["id"]}
+
+    @app.post("/api/billing/stripe")
+    async def stripe_webhook(request: Request):
+        raw = await request.body()
+        if len(raw) > 100_000:
+            raise HTTPException(413, "event too large")
+        if not os.environ.get("STRIPE_WEBHOOK_SECRET"):
+            raise HTTPException(503, "billing webhook disabled")
+        try:
+            event = billing.verify_stripe_event(raw, request.headers.get("stripe-signature", ""))
+            return billing.handle_event(db, event)
+        except (ValueError, KeyError) as e:
+            raise HTTPException(400, "unverified or invalid payment event")
 
     # ---------- 控制台 ----------
     @app.get("/", include_in_schema=False)
@@ -80,6 +186,8 @@ def create_app(db_path=None):
             "recent_tasks": tasks_mod.list_tasks(db, limit=10),
             "pending_approvals": ap.list_approvals(db, status="pending", limit=10),
             "modules": modules_base.list_modules(),
+            "lead_metrics": rev.metrics(db),
+            "readiness": rev.readiness(),
             "pending_approvals_count": stats["approvals_pending"],
         })
 

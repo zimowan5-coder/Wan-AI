@@ -7,6 +7,7 @@
 - 金额统一 CNY 元；外币发生时按记录时汇率折算并备注。
 """
 from .db import now_iso
+import math
 
 KINDS = {
     "api_cost": "API成本",
@@ -21,6 +22,8 @@ def record(db, kind, amount_cny, category="", description="", ref_type=None,
     """记一笔账。amount_cny 为正数；refund 用 kind 区分，不用负数。"""
     if kind not in KINDS:
         raise ValueError(f"unknown ledger kind: {kind}")
+    if not math.isfinite(float(amount_cny)) or float(amount_cny) <= 0:
+        raise ValueError("金额必须为大于零的有限数字")
     cur = db.execute(
         "INSERT INTO ledger(ts,kind,amount_cny,currency,category,description,ref_type,ref_id,is_simulated)"
         " VALUES(?,?,?,?,?,?,?,?,?)",

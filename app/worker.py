@@ -109,6 +109,15 @@ def handle_inquiry_process(db, task, log):
                     f"## 分析\n\n{jdump(analysis, )}\n\n## 回复草稿\n\n{reply}\n",
                     encoding="utf-8")
     tasks_mod.save_artifact(db, task["id"], fname, str(path), "text/markdown")
+    if payload.get("lead_id"):
+        from . import revenue
+        score = 35 + (20 if analysis["intent"] in ("询价", "下单") else 0)
+        score += 15 if analysis["quantities"] else 0
+        score += 10 if analysis["urgency"] == "high" else 0
+        # Templates cannot quote binding prices or promise delivery dates.
+        rev_draft = reply.replace(" within 24 hours", " as soon as possible").replace(
+            "将在 24 小时内", "会尽快")
+        revenue.set_draft(db, int(payload["lead_id"]), rev_draft, analysis["intent"], min(100, score))
     # 对外发送必须审批：建审批单，任务等待
     from . import approvals as ap
     aid = ap.create(db, "publish", f"审批：发送询盘回复（任务 #{task['id']}）",
@@ -260,9 +269,21 @@ def _log_system(db, msg):
         pass
 
 
+def inbox_loop(db, stop_event):
+    from .mailer import poll_inbox
+    while not stop_event.is_set():
+        try:
+            poll_inbox(db)
+        except Exception as e:
+            _log_system(db, f"IMAP同步失败（将在下次重试）：{type(e).__name__}")
+        stop_event.wait(300)
+
+
 def start_worker(db):
     stop = threading.Event()
     t = threading.Thread(target=worker_loop, args=(db, stop), daemon=True,
                          name="wanai-worker")
     t.start()
+    threading.Thread(target=inbox_loop, args=(db, stop), daemon=True,
+                     name="wanai-inbox").start()
     return stop, t

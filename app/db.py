@@ -12,6 +12,33 @@ from datetime import datetime
 from pathlib import Path
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS leads(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_key TEXT UNIQUE NOT NULL,
+    source TEXT NOT NULL,
+    sender_email TEXT NOT NULL,
+    sender_name TEXT DEFAULT '',
+    subject TEXT DEFAULT '',
+    body TEXT NOT NULL,
+    intent TEXT DEFAULT '',
+    score INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'new',
+    task_id INTEGER,
+    draft TEXT DEFAULT '',
+    sent_at TEXT,
+    created_at TEXT,
+    updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+CREATE TABLE IF NOT EXISTS payment_events(
+    event_id TEXT PRIMARY KEY,
+    session_id TEXT UNIQUE NOT NULL,
+    amount_minor INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    livemode INTEGER NOT NULL,
+    email TEXT DEFAULT '',
+    created_at TEXT
+);
 CREATE TABLE IF NOT EXISTS projects(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
