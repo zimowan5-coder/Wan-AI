@@ -37,8 +37,19 @@ CREATE TABLE IF NOT EXISTS payment_events(
     currency TEXT NOT NULL,
     livemode INTEGER NOT NULL,
     email TEXT DEFAULT '',
+    payment_intent TEXT DEFAULT '',
     created_at TEXT
 );
+CREATE TABLE IF NOT EXISTS charge_refunds(
+    charge_id TEXT PRIMARY KEY,
+    payment_intent TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    livemode INTEGER NOT NULL,
+    cumulative_minor INTEGER NOT NULL DEFAULT 0,
+    recorded_minor INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_refunds_intent ON charge_refunds(payment_intent);
 CREATE TABLE IF NOT EXISTS projects(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -177,6 +188,13 @@ class Database:
         self._conn.execute("PRAGMA busy_timeout=5000;")
         with _lock:
             self._conn.executescript(SCHEMA)
+            # In-place migration for early v0.2 installations that already saw paid events.
+            cols = {row[1] for row in self._conn.execute("PRAGMA table_info(payment_events)")}
+            if "payment_intent" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE payment_events ADD COLUMN payment_intent TEXT DEFAULT ''")
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_payment_intent ON payment_events(payment_intent)")
             self._conn.commit()
 
     def execute(self, sql, params=()):

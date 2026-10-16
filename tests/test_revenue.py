@@ -87,3 +87,55 @@ def test_reject_bad_email_and_fake_outcome(db):
             sender_email="bad\nmail@example.org", text="need quote")
     with pytest.raises(ValueError):
         revenue.mark_outcome(db, 1, "won")
+
+def paid_with_intent(event_id="evt_i_paid", session="cs_i_paid", intent="pi_i_paid", live=True):
+    e = event(event_id, session, live=live)
+    e["data"]["object"]["payment_intent"] = intent
+    return e
+
+
+def refund_event(minor, event_id="evt_refund_1", intent="pi_i_paid"):
+    return {"id": event_id, "type": "charge.refunded", "livemode": True,
+      "data": {"object": {"object": "charge", "id": "ch_i_paid",
+        "payment_intent": intent, "currency": "cny", "amount_refunded": minor}}}
+
+
+def test_refund_events_idempotent_and_partial(db):
+    billing.handle_event(db, paid_with_intent())
+    assert billing.handle_event(db, refund_event(5000))["processed"]
+    assert not billing.handle_event(db, refund_event(5000))["processed"]
+    assert billing.handle_event(db, refund_event(12000))["processed"]
+    assert not billing.handle_event(db, refund_event(8000))["processed"]
+    from app.finance import totals
+    assert totals(db)["revenue_real"] == 199
+    assert totals(db)["refund_real"] == 120
+    assert totals(db)["net_real"] == 79
+
+
+def test_refund_before_checkout_reconciles(db):
+    assert not billing.handle_event(db, refund_event(3000))["processed"]
+    billing.handle_event(db, paid_with_intent())
+    from app.finance import totals
+    assert totals(db)["refund_real"] == 30
+    assert not billing.handle_event(db, refund_event(3000))["processed"]
+
+
+def test_async_paid_checkout(db):
+    evt = paid_with_intent()
+    evt["type"] = "checkout.session.async_payment_succeeded"
+    assert billing.handle_event(db, evt)["real_revenue"]
+
+
+def test_migration_adds_payment_intent(tmp_path):
+    import sqlite3
+    path = tmp_path / "legacy-v02.db"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE payment_events(event_id TEXT PRIMARY KEY,"
+                 "session_id TEXT UNIQUE, amount_minor INTEGER, currency TEXT,"
+                 "livemode INTEGER, email TEXT, created_at TEXT)")
+    conn.commit()
+    conn.close()
+    migrated = Database(path)
+    cols = [r[1] for r in migrated.query("PRAGMA table_info(payment_events)")]
+    assert "payment_intent" in cols
+    migrated.close()
