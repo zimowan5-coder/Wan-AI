@@ -12,6 +12,11 @@
 {% if lead.draft %}<pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ lead.draft }}</pre>
 {% else %}<p>草稿尚未生成，点击关联任务查看状态。</p>{% endif %}
 {% if lead.status == "awaiting_review" %}
+<form method="post" action="/leads/{{ lead.id }}/draft">
+<label>编辑实际要发送的内容（保存后需要再去审批）</label>
+<textarea name="draft" rows="12" maxlength="12000" required>{{ lead.draft }}</textarea>
+<button class="btn" type="submit">保存修改后的草稿</button>
+</form>
 <p>先核对具体产品、价格、交期及邮件收件人，再进入 <a href="/approvals">审批中心</a>。审批本身不发送邮件。</p>
 {% elif lead.status == "ready_to_send" %}
 <p><strong>审批通过，尚未发送。</strong> 仅向 {{ lead.sender_email }} 发送一封。</p>

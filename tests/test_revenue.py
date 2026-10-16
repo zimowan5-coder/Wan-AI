@@ -139,3 +139,40 @@ def test_migration_adds_payment_intent(tmp_path):
     cols = [r[1] for r in migrated.query("PRAGMA table_info(payment_events)")]
     assert "payment_intent" in cols
     migrated.close()
+
+
+def test_draft_edit_before_approval_and_send_once(db, monkeypatch):
+    from app import mailer
+    lead, _ = add_lead(db, external="single-send")
+    worker.run_task_once(db, lead["task_id"])
+    revenue.edit_draft(db, lead["id"], "Hello, we will review your RFQ and get back to you.")
+    sent = []
+    class SMTPMock:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def ehlo(self): pass
+        def starttls(self): pass
+        def login(self, *args): pass
+        def send_message(self, msg): sent.append(msg)
+    monkeypatch.setattr(mailer.smtplib, "SMTP", SMTPMock)
+    for k, v in {"WANAI_SMTP_HOST":"smtp.example.org", "WANAI_SMTP_USER":"owner@example.org",
+        "WANAI_SMTP_PASSWORD":"test-only", "WANAI_FROM_EMAIL":"owner@example.org"}.items():
+        monkeypatch.setenv(k,v)
+    approvals.decide(db, tasks.get_task(db, lead["task_id"])["approval_id"], True)
+    assert mailer.send_approved(db, lead["id"]) != "sent"
+    assert revenue.get_lead(db, lead["id"])["status"] == "sent"
+    assert len(sent) == 1
+    assert sent[0]["To"] == "buyer@example.org"
+    assert "we will review" in sent[0].get_content()
+    with pytest.raises(ValueError):
+        mailer.send_approved(db, lead["id"])
+    assert len(sent) == 1
+
+
+def test_cannot_edit_after_approval(db):
+    lead, _ = add_lead(db, external="locked-draft")
+    worker.run_task_once(db, lead["task_id"])
+    approvals.decide(db, tasks.get_task(db, lead["task_id"])["approval_id"], True)
+    with pytest.raises(ValueError):
+        revenue.edit_draft(db, lead["id"], "Alter the reviewed response")

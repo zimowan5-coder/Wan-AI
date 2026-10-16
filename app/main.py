@@ -166,6 +166,14 @@ def create_app(db_path=None):
             "smtp_ready": rev.readiness()["smtp"],
         })
 
+    @app.post("/leads/{lead_id}/draft")
+    def edit_lead_draft(lead_id: int, draft: str = Form(...)):
+        try:
+            rev.edit_draft(db, lead_id, draft)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        return RedirectResponse(f"/leads/{lead_id}", status_code=303)
+
     @app.post("/leads/{lead_id}/send")
     def send_lead(lead_id: int):
         try:
@@ -376,6 +384,7 @@ def create_app(db_path=None):
     def approvals_page(request: Request):
         return templates.TemplateResponse(request, "approvals.html", {
             "request": request, "approvals": ap.list_approvals(db),
+            "review_leads": rev.get_review_leads(db),
             "pending_approvals_count": ap.count_pending(db),
         })
 

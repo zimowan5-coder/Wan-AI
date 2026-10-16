@@ -83,6 +83,28 @@ def set_draft(db, lead_id, draft, intent, score):
                (draft[:MAX_BODY], intent[:80], int(score), now_iso(), lead_id))
 
 
+def edit_draft(db, lead_id, text):
+    """Edit the approved-to-send payload before reviewer signs off."""
+    draft = (text or "").strip()
+    if len(draft) < 12 or len(draft) > MAX_BODY:
+        raise ValueError("草稿必须为 12-12000 字")
+    from .db import _lock
+    with _lock:
+        cur = db._conn.execute(
+            "UPDATE leads SET draft=?,updated_at=? WHERE id=? AND status='awaiting_review'",
+            (draft, now_iso(), lead_id))
+        db._conn.commit()
+    if cur.rowcount != 1:
+        raise ValueError("只能修改待审核的草稿")
+    return get_lead(db, lead_id)
+
+
+def get_review_leads(db):
+    return {r["approval_id"]: dict(r) for r in db.query(
+        "SELECT t.approval_id,l.id,l.sender_email,l.subject,l.draft "
+        "FROM leads l JOIN tasks t ON t.id=l.task_id "
+        "WHERE t.approval_id IS NOT NULL AND l.status='awaiting_review'")}
+
 def approve_draft(db, task_id, approved):
     stage = "ready_to_send" if approved else "lost"
     db.execute("UPDATE leads SET status=?,updated_at=? WHERE task_id=? AND status='awaiting_review'",

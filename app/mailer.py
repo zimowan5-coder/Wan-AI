@@ -5,7 +5,7 @@ import smtplib
 from email import message_from_bytes
 from email.message import EmailMessage
 from email.header import decode_header, make_header
-from email.utils import parseaddr
+from email.utils import parseaddr, make_msgid
 
 from . import revenue
 from .db import now_iso
@@ -94,6 +94,7 @@ def send_approved(db, lead_id):
     email["From"] = sender
     email["To"] = recipient
     email["Subject"] = ("Re: " + subject)[:250] if subject else "Re: Your inquiry"
+    email["Message-ID"] = make_msgid(domain=sender.split("@")[-1])
     email.set_content(draft)
     try:
         with smtplib.SMTP(env["WANAI_SMTP_HOST"], int(env.get("WANAI_SMTP_PORT", "587")), timeout=20) as server:
