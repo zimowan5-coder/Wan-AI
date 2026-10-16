@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}客户询盘 | Wan's AI{% endblock %}
+{% block content %}
+<h1>真实询盘 · 商机管理</h1>
+<p class="muted">系统只处理客户主动提供的询盘。未经审批绝不发送任何邮件；模拟数据不计入经营指标。</p>
+<div class="grid cards-4">
+  <div class="card stat"><div class="stat-num">{{ metrics.leads }}</div><div class="stat-label">真实询盘</div></div>
+  <div class="card stat"><div class="stat-num">{{ metrics.awaiting_review }}</div><div class="stat-label">待审核</div></div>
+  <div class="card stat"><div class="stat-num">{{ metrics.sent }}</div><div class="stat-label">已跟进</div></div>
+  <div class="card stat"><div class="stat-num">{{ metrics.won }}</div><div class="stat-label">标记成交</div></div>
+</div>
+<div class="card"><h2>从自己的业务邮箱同步</h2>
+<p>配置 IMAP 后后台每五分钟拉取一次未读邮件，不标记为已读。</p>
+<form method="post" action="/inbox/sync"><button class="btn btn-primary" type="submit">立即同步</button></form>
+</div>
+<div class="card"><h2>导入客户询盘</h2>
+<form method="post" action="/leads">
+<label>客户邮箱 <input type="email" name="sender_email" maxlength="254" required></label>
+<label>邮件标题 <input name="subject" maxlength="250"></label>
+<label>询盘正文 <textarea name="text" rows="5" maxlength="12000" required></textarea></label>
+<button class="btn btn-primary" type="submit">保存并分析</button></form></div>
+<div class="card"><h2>商机列表</h2>
+<table class="table"><thead><tr><th>编号</th><th>客户邮箱</th><th>主题</th><th>阶段</th><th>优先分</th></tr></thead>
+<tbody>{% for lead in leads %}<tr><td><a href="/leads/{{ lead.id }}">#{{ lead.id }}</a></td>
+<td>{{ lead.sender_email }}</td><td>{{ lead.subject or "（无主题）" }}</td>
+<td>{{ lead.status }}</td><td>{{ lead.score }}</td></tr>
+{% else %}<tr><td colspan="5">暂无真实询盘。可以先导入一条已有客户来信。</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

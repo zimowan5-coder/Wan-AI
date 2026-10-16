@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}首次配置 | Wan's AI{% endblock %}
+{% block content %}
+<h1>首次开业检查清单</h1>
+<p class="muted">系统配置状态只表示相关密钥是否存在，不等于线上服务已验证可用。</p>
+<div class="card"><table class="table">
+<thead><tr><th>项目</th><th>当前状态</th><th>作用</th></tr></thead><tbody>
+<tr><td>后台密码</td><td>{{ "已填写" if readiness.admin_auth else "未填写" }}</td><td>禁止公开无密码控制台</td></tr>
+<tr><td>IMAP 收件邮箱</td><td>{{ "已填写" if readiness.inbound_imap else "未填写" }}</td><td>每 5 分钟收取客户来信</td></tr>
+<tr><td>SMTP 发件邮箱</td><td>{{ "已填写" if readiness.smtp else "未填写" }}</td><td>审核后单封发送</td></tr>
+<tr><td>安全表单入口</td><td>{{ "已填写" if readiness.inbound_webhook else "未填写" }}</td><td>网站签名询盘入口</td></tr>
+<tr><td>Stripe 付款链接</td><td>{{ "已填写" if readiness.payment_link else "未填写" }}</td><td>用户支付的一次性链接</td></tr>
+<tr><td>Stripe Webhook 密钥</td><td>{{ "已填写" if readiness.payment_webhook else "未填写" }}</td><td>只有验签付款才记收入</td></tr>
+</tbody></table></div>
+<div class="card"><h2>第一次使用的顺序</h2><ol>
+<li>打开项目的 .env 文件（脚本第一次启动会自动复制模板），填写后台密码，重启应用。</li>
+<li>准备一个专用业务邮箱，向邮箱服务商开通 IMAP/SMTP 的应用密码，在 .env 填写参数。</li>
+<li>到 <a href="/leads">商机管理</a> 导入一条真实且得到允许处理的询盘，查看分析结果。</li>
+<li>审批回复，检查事实和收件人，再点击发送。系统不群发、不自动寻找个人邮箱。</li>
+<li>开通自己的合法商户账户，并在商户后台建立真实产品付款链接；配置已验签 webhook。</li>
+<li>每周查看真实线索、已发送、客户转化及真实到账，而不是模拟收入。</li>
+</ol><p>完整安装与运营手册：仓库 docs/OPERATOR_PLAYBOOK.md。密钥不要公开给他人。</p></div>
+{% endblock %}

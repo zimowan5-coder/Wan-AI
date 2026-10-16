@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}询盘 #{{ lead.id }} | Wan's AI{% endblock %}
+{% block content %}
+<h1>询盘 #{{ lead.id }} · {{ lead.subject or "客户需求" }}</h1>
+<p><a href="/leads">← 返回列表</a></p>
+<div class="card"><h2>客户信息与原文</h2>
+<p>邮箱：{{ lead.sender_email }} · 来源：{{ lead.source }} · 阶段：<strong>{{ lead.status }}</strong></p>
+<p>意图：{{ lead.intent or "待识别" }} · 优先分：{{ lead.score }}（仅用于排序，不是成交概率）</p>
+{% if task %}<p>关联任务：<a href="/tasks/{{ task.id }}">#{{ task.id }} · {{ task.status_label }}</a></p>{% endif %}
+<pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ lead.body }}</pre></div>
+<div class="card"><h2>回复草稿</h2>
+{% if lead.draft %}<pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ lead.draft }}</pre>
+{% else %}<p>草稿尚未生成，点击关联任务查看状态。</p>{% endif %}
+{% if lead.status == "awaiting_review" %}
+<p>先核对具体产品、价格、交期及邮件收件人，再进入 <a href="/approvals">审批中心</a>。审批本身不发送邮件。</p>
+{% elif lead.status == "ready_to_send" %}
+<p><strong>审批通过，尚未发送。</strong> 仅向 {{ lead.sender_email }} 发送一封。</p>
+<form method="post" action="/leads/{{ lead.id }}/send" data-confirm="确认发送给 {{ lead.sender_email }}？此操作不可撤回。">
+<button class="btn btn-primary" type="submit" {% if not smtp_ready %}disabled{% endif %}>确认发送单封邮件</button></form>
+{% if not smtp_ready %}<p>尚未填写 SMTP，请查看 <a href="/setup">配置清单</a>。</p>{% endif %}
+{% elif lead.status in ("sent", "won", "lost") %}
+<p>发送时间：{{ lead.sent_at or "—" }}。成交标记不等于收到付款。</p>
+<form method="post" action="/leads/{{ lead.id }}/outcome">
+<button class="btn" type="submit" name="status" value="won">标记成交</button>
+<button class="btn" type="submit" name="status" value="lost">标记流失</button></form>
+{% elif lead.status == "failed" %}
+<p>发送结果不确定，请先检查邮件发件箱，系统不会自动重发。</p>
+{% endif %}</div>
+{% endblock %}
